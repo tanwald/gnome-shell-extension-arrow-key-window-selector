@@ -1,6 +1,6 @@
 {	"shell-version": ["3.0.2"],
-	"uuid": "arrowKeyWindowNavigator@tanwald.net",
-	"name": "arrowKeyWindowNavigator",
-	"description": "Select windows with arrow keys in overview mode",
+	"uuid": "arrow_key_window_selector@tanwald.net",
+	"name": "Arrow Key Window Selector",
+	"description": "Select windows in overview mode with arrow keys",
 	"url": "http://www.tanwald.net"
 }
