@@ -100,6 +100,14 @@ function main() {
     }
     
     /*
+     * Getter for all sorted window clones.
+     * @return: [ WindowClone ]
+     */
+    Workspace.Workspace.prototype.getWindowClones = function() {
+        return this._sortedClones;
+    }
+    
+    /*
      * Returns an array of window-clones in the same order as they are inserted into the 
      * overview grid and a second array containing their slots in corresponding order.
      * @return: [ [ WindowClone ], [ Slot ] ]
@@ -187,7 +195,7 @@ function main() {
             this._updateArrowKeyIndex(key, workspace);
         // Otherwise we have to initialize the selection process.
         } else {
-            this._initSelection();
+            this._initSelection(workspace);
         }
         
         // Define the new selected window and highlight it.
@@ -241,15 +249,20 @@ function main() {
     }
     
     /*
-     * Adds a lightbox to the main ui group.
+     * Adds a lightbox to the main ui group and sets focus to the active window.
      */
-    WorkspacesView.WorkspacesView.prototype._initSelection = function() {
+    WorkspacesView.WorkspacesView.prototype._initSelection = function(workspace) {
         this._lightBox = new Lightbox.Lightbox(Main.uiGroup, {fadeTime: 0.1});
         this._lightBox.show();
+        let wins = workspace.getWindowClones();
+        let focus = global.screen.get_display().focus_window;
+        for (i in wins) {
+            if (wins[i].metaWindow == focus) this._arrowKeyIndex = i;
+        }
     }
     
     /*
-     * Tidy up all artefacts and adjustments that were introduced during the
+     * Tidy up all actors and adjustments that were introduced during the
      * selection process.
      */
     WorkspacesView.WorkspacesView.prototype._endSelection = function() {
@@ -299,6 +312,7 @@ function main() {
         let new_x = this.actor.x - delta_width / 2;
         let new_y = this.actor.y - delta_height / 2;
         
+        // Define available Area.
         let monitorIndex = this.metaWindow.get_monitor();
         let availArea = global.get_monitors()[monitorIndex];
         let padding = 50;
@@ -307,6 +321,7 @@ function main() {
         let left = availArea.x + padding;
         let right = availArea.x + availArea.width - padding;
         
+        // Adjust new geometry to the available Area.
         if (monitorIndex == global.get_primary_monitor_index()) top += Main.panel.actor.height;
         if (new_x + new_width > right) new_x = right - new_width;
         if (new_x < left) new_x = left;
@@ -319,13 +334,13 @@ function main() {
                   y: new_y,
                   scale_x: new_scale_x,
                   scale_y: new_scale_y,
-                  time: 0.3,
+                  time: 0.5,
                   transition: 'easeOutQuad' 
                 });
     }
     
     /*
-     * Undos the adjustments done by select().
+     * Undoes the adjustments done by select().
      */
     Workspace.WindowClone.prototype.unselect = function() {
         Tweener.removeTweens(this.actor);
