@@ -2,8 +2,6 @@
 
 const Clutter = imports.gi.Clutter;
 const Lang = imports.lang;
-const Mainloop = imports.mainloop;
-const St = imports.gi.St;
 
 const Lightbox = imports.ui.lightbox;
 const Main = imports.ui.main;
@@ -57,18 +55,18 @@ function main() {
      */
     injectToFunction(WorkspacesView.WorkspacesView.prototype, '_onDestroy', function() {
         global.stage.disconnect(this._anyKeyPressEventId);
-        this._endSelection();
+        this._endSelection(false);
     });
     
     /*
      * Callback function that is triggered by 'key-press-events' and delegates to the 
      * according subroutines.
-     * @param s: ?!?
-     * @param o: event object 
+     * @param actor: actor which emits the event
+     * @param event: the event object 
      * @return: Boolean
      */
-    WorkspacesView.WorkspacesView.prototype._onAnyKeyPress = function(s, o) {
-        let key = o.get_key_symbol();
+    WorkspacesView.WorkspacesView.prototype._onAnyKeyPress = function(actor, event) {
+        let key = event.get_key_symbol();
         // Check if an arrow key was pressed
         if (key == Clutter.Up || key == Clutter.Down || key == Clutter.Left || key == Clutter.Right) {
             return this._arrowKeyPressed(key);
@@ -81,7 +79,7 @@ function main() {
      * Entry point for the selection process by arrow keys.
      * @param key: pressed key
      * @param workspace: the active workspace
-     * @return: Boolean (true)
+     * @return: Boolean
      */
     WorkspacesView.WorkspacesView.prototype._arrowKeyPressed = function(key) {
         let windowOverlays = this.getWindowOverlays();
@@ -89,7 +87,7 @@ function main() {
             return false;
         // If this method has been called before, we already have a selected window.
         } else if (this._selected) {
-            this._selected.getWindowClone().unselect();
+            this._selected.getWindowClone().unselect(true);
             this._updateArrowKeyIndex(key, windowOverlays.all());
         // Otherwise we have to initialize the selection process.
         } else {
@@ -112,14 +110,14 @@ function main() {
     WorkspacesView.WorkspacesView.prototype._nonArrowKeyPressed = function(key) {
         if (this._selected && key == Clutter.Return) {
             let metaWindow = this.getWindowOverlays().at(this._arrowKeyIndex).getMetaWindow();
-            this._endSelection();
+            this._endSelection(false);
             Main.activateWindow(metaWindow, global.get_current_time());
         } else if (this._selected && key == Clutter.Delete) {
             let windowOverlay = this.getWindowOverlays().at(this._arrowKeyIndex);
-            this._endSelection();
+            this._endSelection(false);
             windowOverlay.closeWindow();
         } else {
-            this._endSelection();
+            this._endSelection(true);
         }
         return false;
     }
@@ -191,8 +189,8 @@ function main() {
      * to do something else.
      */
     WorkspacesView.WorkspacesView.prototype._initSelection = function(windowOverlays) {
-        this._anyButtonPressEventId = global.stage.connect('button-press-event', Lang.bind(this, this._endSelection));
-        this._anyMotionEventId = global.stage.connect('motion-event', Lang.bind(this, this._endSelection));
+        this._anyButtonPressEventId = global.stage.connect('button-press-event', Lang.bind(this, this._endSelectionForListener));
+        this._anyMotionEventId = global.stage.connect('motion-event', Lang.bind(this, this._endSelectionForListener));
         this._lightbox = new Lightbox.Lightbox(Main.uiGroup, {fadeTime: 0.1});
         this._lightbox.show();
         let focus = global.screen.get_display().focus_window;
@@ -207,20 +205,29 @@ function main() {
     /*
      * Tidy up all actors and adjustments that were introduced during the
      * selection process.
+     * @param resetGeometry: flag which indicates if the geometry of a 
+     * selected window should be reset.
      */
-    WorkspacesView.WorkspacesView.prototype._endSelection = function() {
+    WorkspacesView.WorkspacesView.prototype._endSelection = function(resetGeometry) {
         // As this method is also called each time the WorkpaceView is destroyed,
         // we have to check if a window was selected.
         if (this._selected) {
             global.stage.disconnect(this._anyButtonPressEventId);
             global.stage.disconnect(this._anyMotionEventId);
-            this._selected.getWindowClone().unselect();
+            this._selected.getWindowClone().unselect(resetGeometry);
             this._selected = null;
             this._lightbox.hide();
             this._lightbox.destroy();
             this._lightbox = null;
             this._arrowKeyIndex = 0;
         }
+    }
+    
+    /*
+     * See _endSelection. Always resets geometry.
+     */
+    WorkspacesView.WorkspacesView.prototype._endSelectionForListener = function() {
+        this._endSelection(true);
     }
     
     /*
@@ -282,6 +289,7 @@ function main() {
     /*
      * Highlights and zooms the currently selected window.
      * @param lightbox: a reference to the lightbox introduced by _initSelection
+     * @param windowCount: number of windows on the active workspace
      */
     Workspace.WindowClone.prototype.select = function(lightbox, windowCount) {
         // Store the original parent and highlight the window.
@@ -333,15 +341,17 @@ function main() {
             y: new_y,
             scale_x: new_scale_x,
             scale_y: new_scale_y,
-            time: 0.3,
+            time: 0.2,
             transition: 'easeOutQuad' 
         });
     }
     
     /*
      * Undoes the adjustments done by select().
+     * @param resetGeometry: flag which indicates if the geometry 
+     * should be reset.
      */
-    Workspace.WindowClone.prototype.unselect = function() {
+    Workspace.WindowClone.prototype.unselect = function(resetGeometry) {
         Tweener.removeTweens(this.actor);
         this.actor.reparent(this._origParent);
         if (this._stackAbove == null) {
@@ -349,10 +359,12 @@ function main() {
         } else if (this._stackAbove.get_parent()) {
             this.actor.raise(this._stackAbove);
         }
-        this.actor.x = this.storedGeometry.x; 
-        this.actor.y = this.storedGeometry.y;
-        this.actor.scale_x = this.storedGeometry.scale_x;
-        this.actor.scale_y = this.storedGeometry.scale_y;
+        if (resetGeometry) {
+            this.actor.x = this.storedGeometry.x; 
+            this.actor.y = this.storedGeometry.y;
+            this.actor.scale_x = this.storedGeometry.scale_x;
+            this.actor.scale_y = this.storedGeometry.scale_y; 
+        }
     }
     
     /*
