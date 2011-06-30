@@ -5,13 +5,11 @@ const Lang = imports.lang;
 const Mainloop = imports.mainloop;
 const St = imports.gi.St;
 
+const Lightbox = imports.ui.lightbox;
 const Main = imports.ui.main;
+const Tweener = imports.ui.tweener;
 const Workspace = imports.ui.workspace;
 const WorkspacesView = imports.ui.workspacesView;
-const Overview = imports.ui.overview;
-const Lightbox = imports.ui.lightbox;
-const ScaledPoint = Workspace.ScaledPoint;
-const Tweener = imports.ui.tweener;
 
 /*
  * Helper function for injecting code into existing
@@ -26,129 +24,30 @@ function injectToFunction(parent, name, func) {
     parent[name] = function() {
         let ret;
         ret = origin.apply(this, arguments);
-        if (ret === undefined) ret = func.apply(this, arguments);
+        if (ret === undefined) {
+            ret = func.apply(this, arguments);
+        }
         return ret;
     }
 }
 
-// I swapped the last two slots in case 4 to provide increasing x-coordinates (to be consistent). 
-const PATCHED_POSITIONS = {
-        1: [[0.5, 0.5, 0.95]],
-        2: [[0.25, 0.5, 0.48], [0.75, 0.5, 0.48]],
-        3: [[0.25, 0.25, 0.48], [0.75, 0.25, 0.48], [0.5, 0.75, 0.48]],
-        4: [[0.25, 0.25, 0.47], [0.75, 0.25, 0.47], [0.25, 0.75, 0.47], [0.75, 0.75, 0.47]],
-        5: [[0.165, 0.25, 0.32], [0.495, 0.25, 0.32], [0.825, 0.25, 0.32], [0.25, 0.75, 0.32], [0.75, 0.75, 0.32]]
-};
-
 function main() {
-    
-    /*
-     * Introduces two additional members.
-     */
-    injectToFunction(Workspace.Workspace.prototype, '_init', function(metaWorkspace) {
-        // Contains information about the geometric arrangement of window-clones 
-        // which are displayed in overview mode.
-        this._geometryDict = {};
-        // Window-clones in the same order as they are inserted into the 
-        // overview grid.
-        this._sortedClones = [];
-    });
 
-    /*
-     * Retrieves and stores information about the geometric arrangement of window-clones.
-     * This information has to be updated each time 'positionWindows' is called.
-     */
-    injectToFunction(Workspace.Workspace.prototype, 'positionWindows', function(flags) {
-        let [sortedClones, slots] = this.getSortedClonesAndSlots();
-        
-        let prevY = slots[0][1];
-        let cols = 0;
-        let rows = 1;
-        let first = true;
-        // Get the number of columns i.e. the number of slots with identical y-coordinate
-        // and the number of rows.
-        for (i in slots) {
-            if (prevY == slots[i][1] && first) {
-                ++cols;
-            } else {
-                first = false;
-                ++rows;
-            }
-        }
-        this._geometryDict.cols = cols;
-        this._geometryDict.rows = rows;
-        this._geometryDict.maxWindowIndex = sortedClones.length - 1;
-        this._geometryDict.maxGridIndex = cols * rows - 1;
-        this._sortedClones = sortedClones;
-    });
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// WorkspaceView ////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     
     /*
-     * Getter for _geometryDict.
-     * @return: Object
-     */
-    Workspace.Workspace.prototype.getGeometryDict = function() {
-        return this._geometryDict;
-    }
-    
-    /*
-     * Getter for a window clone within _sortedClones.
-     * @param index: index of the desired window clone
-     * @return: WindowClone
-     */
-    Workspace.Workspace.prototype.getWindowClone = function(index) {
-        return this._sortedClones[index];
-    }
-    
-    /*
-     * Getter for all sorted window clones.
-     * @return: [ WindowClone ]
-     */
-    Workspace.Workspace.prototype.getWindowClones = function() {
-        return this._sortedClones;
-    }
-    
-    /*
-     * Returns an array of window-clones in the same order as they are inserted into the 
-     * overview grid and a second array containing their slots in corresponding order.
-     * @return: [ [ WindowClone ], [ Slot ] ]
-     */
-    Workspace.Workspace.prototype.getSortedClonesAndSlots = function() {
-        // create a copy of all window clones.
-        let sortedClones = this._windows.slice();
-        if (this._reservedSlot) {
-            sortedClones.push(this._reservedSlot);
-        }
-        let slots = this._computeAllWindowSlots(sortedClones.length);
-        // sort window clones.
-        sortedClones = this._orderWindowsByMotionAndStartup(sortedClones, slots);
-        return [sortedClones, slots];
-    }
-    
-    /*
-     * Overrides the original implementation because of an inconsistency in the arrangement
-     * of slots/window-clones.
-     * @attention: this could be removed if the constant variable POSITIONS was adjusted
-     */
-    Workspace.Workspace.prototype._computeWindowSlot = function(windowIndex, numberOfWindows) {
-        let POSITIONS = PATCHED_POSITIONS;
-        if (numberOfWindows in POSITIONS) return POSITIONS[numberOfWindows][windowIndex];
-        
-        let gridWidth = Math.ceil(Math.sqrt(numberOfWindows));
-        let gridHeight = Math.ceil(numberOfWindows / gridWidth);
-        let fraction = 0.95 * (1. / gridWidth);
-        let xCenter = (.5 / gridWidth) + ((windowIndex) % gridWidth) / gridWidth;
-        let yCenter = (.5 / gridHeight) + Math.floor((windowIndex / gridWidth)) / gridHeight;
-        return [xCenter, yCenter, fraction];
-    },
-    
-    /*
-     * Introduces three additional members and registers a 'key-press-event' listener.
+     * Introduces four additional members and registers a 'key-press-event' listener.
      */
     injectToFunction(WorkspacesView.WorkspacesView.prototype, '_init', function(width, height, x, y, workspaces) {
-        this._arrowKeyPressEventId = global.stage.connect('key-press-event', Lang.bind(this, this._onAnyKeyPress));
+        this._anyKeyPressEventId = global.stage.connect('key-press-event', Lang.bind(this, this._onAnyKeyPress));
+        // Index of the window that is - or is to be - selected.
         this._arrowKeyIndex = 0;
-        this._selectedWin = null;
-        this._lightBox = null;
+        // The currently selected window. Actually it's the window overlay because it 
+        // contains the most information and has access to other abstractions.
+        this._selected = null;
+        this._lightbox = null;
     });
     
     /*
@@ -157,67 +56,72 @@ function main() {
      * @TODO: capture the super-key-pressed event directly.
      */
     injectToFunction(WorkspacesView.WorkspacesView.prototype, '_onDestroy', function() {
-        global.stage.disconnect(this._arrowKeyPressEventId);
+        global.stage.disconnect(this._anyKeyPressEventId);
         this._endSelection();
     });
     
     /*
      * Callback function that is triggered by 'key-press-events' and delegates to the 
      * according subroutines.
-     * @param s: signal ?!?
+     * @param s: ?!?
      * @param o: event object 
      * @return: Boolean
      */
     WorkspacesView.WorkspacesView.prototype._onAnyKeyPress = function(s, o) {
         let key = o.get_key_symbol();
-        let workspace = this.getActiveWorkspace();
         // Check if an arrow key was pressed
         if (key == Clutter.Up || key == Clutter.Down || key == Clutter.Left || key == Clutter.Right) {
-            this._arrowKeyPressed(key, workspace);
-            return true;
+            return this._arrowKeyPressed(key);
         } else {
-            this._nonArrowKeyPressed(key, workspace);
-            return false;
+            return this._nonArrowKeyPressed(key);
         }
     }
     
     /*
-     * Entry point for the selection process by arrow keys
+     * Entry point for the selection process by arrow keys.
      * @param key: pressed key
      * @param workspace: the active workspace
+     * @return: Boolean (true)
      */
-    WorkspacesView.WorkspacesView.prototype._arrowKeyPressed = function(key, workspace) {
-        // If this method has already been called before, we already have a selected window.
-        if (this._selectedWin) {
-            // We have to unselect the previous window...
-            this._selectedWin.unselect();
-            // ... and compute the new window index.
-            this._updateArrowKeyIndex(key, workspace);
+    WorkspacesView.WorkspacesView.prototype._arrowKeyPressed = function(key) {
+        let windowOverlays = this.getWindowOverlays();
+        if (windowOverlays.all().length < 1) {
+            return false;
+        // If this method has been called before, we already have a selected window.
+        } else if (this._selected) {
+            this._selected.getWindowClone().unselect();
+            this._updateArrowKeyIndex(key, windowOverlays.all());
         // Otherwise we have to initialize the selection process.
         } else {
-            this._initSelection(workspace);
+            this._initSelection(windowOverlays.all());
         }
         
-        // Define the new selected window and highlight it.
-        this._selectedWin = workspace.getWindowClone(this._arrowKeyIndex);
-        this._selectedWin.select(this._lightBox);
+        // Define the new/initially selected window and highlight it.
+        this._selected = windowOverlays.at(this._arrowKeyIndex);
+        // @TODO: Maybe also zoom the window overlays.
+        this._selected.getWindowClone().select(this._lightbox, windowOverlays.all().length);
+        return true;
     }
     
     /*
-     * Activates the currently selected window and/or ends the selection process.
+     * Activates/closes the currently selected window and/or ends the selection process.
      * @param key: pressed key
      * @param workspace: the active workspace
+     * @return: Boolean (false)
      */
-    WorkspacesView.WorkspacesView.prototype._nonArrowKeyPressed = function(key, workspace) {
-        if (this._selectedWin && key == Clutter.Return) {
-            let win = workspace.getWindowClone(this._arrowKeyIndex);
-            if (win) {
-                this._endSelection();
-                Main.activateWindow(win.metaWindow, global.get_current_time());
-             }
+    WorkspacesView.WorkspacesView.prototype._nonArrowKeyPressed = function(key) {
+        if (this._selected && key == Clutter.Return) {
+            let metaWindow = this.getWindowOverlays().at(this._arrowKeyIndex).getMetaWindow();
+            this._endSelection();
+            Main.activateWindow(metaWindow, global.get_current_time());
+        } else if (this._selected && key == Clutter.Delete) {
+            let windowOverlay = this.getWindowOverlays().at(this._arrowKeyIndex);
+            this._endSelection();
+            windowOverlay.closeWindow();
         } else {
             this._endSelection();
         }
+        return false;
     }
     
     /*
@@ -225,39 +129,78 @@ function main() {
      * @param key: pressed key
      * @param workspace: the active workspace
      */
-    WorkspacesView.WorkspacesView.prototype._updateArrowKeyIndex = function(key, workspace) {
-        let cols = workspace.getGeometryDict().cols;
-        let maxWindowIndex = workspace.getGeometryDict().maxWindowIndex;
-        let maxGridIndex = workspace.getGeometryDict().maxGridIndex;
-        let prevArrowKeyIndex = this._arrowKeyIndex;
-        
+    WorkspacesView.WorkspacesView.prototype._updateArrowKeyIndex = function(key, windowOverlays) {
+        // sw ... selected window
+        // cw ... current window
+        sw = this._selected.getStoredGeometry();
+        // Just in case some user has infinite resolution...
+        let minDistance = Number.POSITIVE_INFINITY;
         if (key == Clutter.Up) {
-            this._arrowKeyIndex -= cols;
+            for (i in windowOverlays) {
+                let cw = windowOverlays[i].getStoredGeometry();
+                let distance = this._calcDistance(sw, cw);
+                if (cw.y + cw.height < sw.y && distance < minDistance) {
+                    this._arrowKeyIndex = i;
+                    minDistance = distance;
+                }
+            }
         } else if (key == Clutter.Down) {
-            this._arrowKeyIndex += cols;
+            for (i in windowOverlays) {
+                let cw = windowOverlays[i].getStoredGeometry();
+                let distance = this._calcDistance(sw, cw);
+                if (cw.y > sw.y + sw.height && distance < minDistance) {
+                    this._arrowKeyIndex = i;
+                    minDistance = distance;
+                }
+            }
         } else if (key == Clutter.Left) {
-            --this._arrowKeyIndex;
+            for (i in windowOverlays) {
+                let cw = windowOverlays[i].getStoredGeometry();
+                let distance = this._calcDistance(sw, cw);
+                if (cw.x + cw.width < sw.x && distance < minDistance) {
+                    this._arrowKeyIndex = i;
+                    minDistance = distance;
+                }
+            }
         } else if (key == Clutter.Right) {
-            ++this._arrowKeyIndex;
-        }
-        
-        // Handle navigation attempts that would go beyond the window grid.
-        if (this._arrowKeyIndex < 0) this._arrowKeyIndex = prevArrowKeyIndex;
-        if (this._arrowKeyIndex > maxWindowIndex) {
-            this._arrowKeyIndex = (this._arrowKeyIndex <= maxGridIndex) ? maxWindowIndex : prevArrowKeyIndex;
+            for (i in windowOverlays) {
+                let cw = windowOverlays[i].getStoredGeometry();
+                let distance = this._calcDistance(sw, cw);
+                if (cw.x > sw.x + sw.width && distance < minDistance) {
+                    this._arrowKeyIndex = i;
+                    minDistance = distance;
+                }
+            }
         }
     }
     
     /*
-     * Adds a lightbox to the main ui group and sets focus to the active window.
+     * Calculates the Manhattan-Distance of two windows in overview mode. 
+     * @param sw: selected window
+     * @param cw: currently evaluated window
+     * @return: Number
      */
-    WorkspacesView.WorkspacesView.prototype._initSelection = function(workspace) {
-        this._lightBox = new Lightbox.Lightbox(Main.uiGroup, {fadeTime: 0.1});
-        this._lightBox.show();
-        let wins = workspace.getWindowClones();
+    WorkspacesView.WorkspacesView.prototype._calcDistance = function(sw, cw) {
+        return Math.abs(sw.center_x - cw.center_x) + Math.abs(sw.center_y - cw.center_y);
+    }
+    
+    /*
+     * Adds a lightbox to the main ui group, sets focus to the active window
+     * and stores the window geometry of clones. Motion- and button-press-event 
+     * listeners assure that the selection process gets terminated if the user wants
+     * to do something else.
+     */
+    WorkspacesView.WorkspacesView.prototype._initSelection = function(windowOverlays) {
+        this._anyButtonPressEventId = global.stage.connect('button-press-event', Lang.bind(this, this._endSelection));
+        this._anyMotionEventId = global.stage.connect('motion-event', Lang.bind(this, this._endSelection));
+        this._lightbox = new Lightbox.Lightbox(Main.uiGroup, {fadeTime: 0.1});
+        this._lightbox.show();
         let focus = global.screen.get_display().focus_window;
-        for (i in wins) {
-            if (wins[i].metaWindow == focus) this._arrowKeyIndex = i;
+        for (i in windowOverlays) {
+            if (windowOverlays[i].getMetaWindow() == focus) {
+                this._arrowKeyIndex = i;
+            }
+            windowOverlays[i].getWindowClone().createGeometrySnapshot();
         }
     }
     
@@ -266,45 +209,91 @@ function main() {
      * selection process.
      */
     WorkspacesView.WorkspacesView.prototype._endSelection = function() {
-        if (this._selectedWin) {
-            this._selectedWin.unselect();
-            this._selectedWin = null;
-            this._lightBox.hide();
-            this._lightBox.destroy();
-            this._lightBox = null;
+        // As this method is also called each time the WorkpaceView is destroyed,
+        // we have to check if a window was selected.
+        if (this._selected) {
+            global.stage.disconnect(this._anyButtonPressEventId);
+            global.stage.disconnect(this._anyMotionEventId);
+            this._selected.getWindowClone().unselect();
+            this._selected = null;
+            this._lightbox.hide();
+            this._lightbox.destroy();
+            this._lightbox = null;
             this._arrowKeyIndex = 0;
         }
     }
     
     /*
-     * Ends the scroll-zooming process when you want to start selecting.
+     * Getter for window overlays of the active workspace.
+     * @return: { all(): [ WindowOverlay ], at(index): WindowOverlay }
+     */
+    WorkspacesView.WorkspacesView.prototype.getWindowOverlays = function() {
+        let windowOverlays = this.getActiveWorkspace().getWindowOverlays();
+        return {
+            all: function() {
+                return windowOverlays.all();
+            },
+            at: function(index) {
+                return windowOverlays.at(index);
+            }
+        };
+    }
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Workspace ////////////////////////////////////////////////////////////////////////////////////////////////////////   
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
+    /*
+     * Getter for window overlays of a workspace.
+     * @return: { all(): [ WindowOverlay ], at(index): WindowOverlay }
+     */
+    Workspace.Workspace.prototype.getWindowOverlays = function() {
+        let windowOverlays = this._windowOverlays;
+        return {
+            all: function() {
+                return windowOverlays;
+            },
+            at: function(index) {
+                return windowOverlays[index];
+            }
+        };
+    }
+    
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////// 
+// WindowClone //////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
+    /*
+     * Introduces a dictionary for window geometry and registers a key-press-event listener 
+     * for terminating the scroll-zooming process when you want to start selecting.
      */
     injectToFunction(Workspace.WindowClone.prototype, '_init', function(realWindow) {
-        this._arrowKeyPressEventId = global.stage.connect('key-press-event', Lang.bind(this, this._zoomEnd));
+        this._anyKeyPressEventId = global.stage.connect('key-press-event', Lang.bind(this, this._zoomEnd));
+        this.storedGeometry = {};
     });
     
     /*
      * Disconnects the key-press-event listener.
      */
     injectToFunction(Workspace.WindowClone.prototype, '_onDestroy', function() {
-        global.stage.disconnect(this._arrowKeyPressEventId);
+        global.stage.disconnect(this._anyKeyPressEventId);
     });
     
     /*
      * Highlights and zooms the currently selected window.
-     * @param lightBox: a reference to the lightbox introduced by _initSelection
+     * @param lightbox: a reference to the lightbox introduced by _initSelection
      */
-    Workspace.WindowClone.prototype.select = function(lightBox) {
-        // Store the original geometry and highlight the window.
-        this._origScaledPoint  = new ScaledPoint(this.actor.x, this.actor.y, this.actor.scale_x, this.actor.scale_y);
+    Workspace.WindowClone.prototype.select = function(lightbox, windowCount) {
+        // Store the original parent and highlight the window.
         this._origParent = this.actor.get_parent();
         this.actor.reparent(Main.uiGroup);
         this.actor.raise_top();
-        lightBox.highlight(this.actor);
+        lightbox.highlight(this.actor);
         
         // Calculate the new geometry.
-        let new_scale_x = this.actor.scale_x * 1.5;
-        let new_scale_y = this.actor.scale_y * 1.5;
+        let factor = (windowCount > 1) ? 1.5 : 1.1;
+        let new_scale_x = this.actor.scale_x * factor;
+        let new_scale_y = this.actor.scale_y * factor;
         let new_width = this.actor.width * new_scale_x;
         let new_height = this.actor.height * new_scale_y;
         let delta_width =  new_width - this.actor.width * this.actor.scale_x;
@@ -322,21 +311,31 @@ function main() {
         let right = availArea.x + availArea.width - padding;
         
         // Adjust new geometry to the available Area.
-        if (monitorIndex == global.get_primary_monitor_index()) top += Main.panel.actor.height;
-        if (new_x + new_width > right) new_x = right - new_width;
-        if (new_x < left) new_x = left;
-        if (new_y + new_height > bottom) new_y = bottom - new_height;
-        if (new_y < top) new_y = top;
+        if (monitorIndex == global.get_primary_monitor_index()) {
+            top += Main.panel.actor.height;
+        }
+        if (new_x + new_width > right) {
+            new_x = right - new_width;
+        }
+        if (new_x < left){
+            new_x = left;
+        }
+        if (new_y + new_height > bottom) {
+            new_y = bottom - new_height;
+        }
+        if (new_y < top) {
+            new_y = top;
+        }
         
         // Zoom the window.
-        Tweener.addTween(this.actor,
-                { x: new_x,
-                  y: new_y,
-                  scale_x: new_scale_x,
-                  scale_y: new_scale_y,
-                  time: 0.5,
-                  transition: 'easeOutQuad' 
-                });
+        Tweener.addTween(this.actor, { 
+            x: new_x,
+            y: new_y,
+            scale_x: new_scale_x,
+            scale_y: new_scale_y,
+            time: 0.3,
+            transition: 'easeOutQuad' 
+        });
     }
     
     /*
@@ -345,8 +344,68 @@ function main() {
     Workspace.WindowClone.prototype.unselect = function() {
         Tweener.removeTweens(this.actor);
         this.actor.reparent(this._origParent);
-        [this.actor.x, this.actor.y] = this._origScaledPoint.getPosition();
-        [this.actor.scale_x, this.actor.scale_y] = this._origScaledPoint.getScale();
+        if (this._stackAbove == null) {
+            this.actor.lower_bottom();
+        } else if (this._stackAbove.get_parent()) {
+            this.actor.raise(this._stackAbove);
+        }
+        this.actor.x = this.storedGeometry.x; 
+        this.actor.y = this.storedGeometry.y;
+        this.actor.scale_x = this.storedGeometry.scale_x;
+        this.actor.scale_y = this.storedGeometry.scale_y;
+    }
+    
+    /*
+     * Closes the associated window.
+     */
+    Workspace.WindowOverlay.prototype.closeWindow = function() {
+        this._closeWindow(null);
+    }
+    
+    /*
+     * Creates a snapshot of the window geometry.
+     */
+    Workspace.WindowClone.prototype.createGeometrySnapshot = function() {
+        let width = this.actor.width * this.actor.scale_x;
+        let height = this.actor.height * this.actor.scale_y;
+        this.storedGeometry = {
+            x: this.actor.x, 
+            y: this.actor.y,
+            width: width,
+            height: height, 
+            scale_x: this.actor.scale_x,
+            scale_y: this.actor.scale_y,
+            center_x: this.actor.x + width / 2,
+            center_y: this.actor.y + height / 2
+        };
+    }
+    
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////   
+// WindowOverlay ////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
+    /*
+     * Returns a geometry-info object of the window clone.
+     * @return: Object
+     */
+    Workspace.WindowOverlay.prototype.getStoredGeometry = function() {
+        return this._windowClone.storedGeometry;
+    }
+    
+    /*
+     * Getter for the window clone.
+     * @return: WindowClone
+     */
+    Workspace.WindowOverlay.prototype.getWindowClone = function() {
+        return this._windowClone;
+    }
+    
+    /*
+     * Getter for the meta window.
+     * @return: MetaWindow
+     */
+    Workspace.WindowOverlay.prototype.getMetaWindow = function() {
+        return this._windowClone.metaWindow;
     }
 }
 
