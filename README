@@ -1,0 +1,17 @@
+GNOME-SHELL-EXTENSION: ARROW-KEY-WINDOW-SELECTOR
+
+This extension allows you to select windows in overview
+mode with the arrow keys of your keyboard. When you
+are in overview mode and press an arrow key, the
+most recently focused window will be selected and
+highlighted. As soon as you have navigated to the desired
+window you can press ENTER for activating the window or
+DELETE for closing it. Mouse events and other key events
+will terminate the selection process.
+
+INSTALLATION:
+
+Create a folder in ~/.local/share/gnome-shell/extensions
+called arrow-key-window-selector@tanwald.net and move
+extension.js and metadata.json into that folder. Restart
+the gnome-shell. 
