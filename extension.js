@@ -2,12 +2,21 @@
 
 const Clutter = imports.gi.Clutter;
 const Lang = imports.lang;
+const Mainloop = imports.mainloop;
 
 const Lightbox = imports.ui.lightbox;
 const Main = imports.ui.main;
 const Tweener = imports.ui.tweener;
 const Workspace = imports.ui.workspace;
 const WorkspacesView = imports.ui.workspacesView;
+
+// @TODO configurable with gsettings.
+// How long a highlight-transition will take (s).
+const TRANSITION_TIME = 0.2;
+// Time from initial highlight until the transition starts (ms).
+const TRANSITION_TIMEOUT = 0;
+// Zoom factor for the highlighted window. 1 <= x <= 1.5 
+const ZOOM_FACTOR = 1.5;
 
 /*
  * Helper function for injecting code into existing
@@ -299,7 +308,7 @@ function main() {
         lightbox.highlight(this.actor);
         
         // Calculate the new geometry.
-        let factor = (windowCount > 1) ? 1.5 : 1.1;
+        let factor = (windowCount > 1) ? ZOOM_FACTOR : 1.1;
         let new_scale_x = this.actor.scale_x * factor;
         let new_scale_y = this.actor.scale_y * factor;
         let new_width = this.actor.width * new_scale_x;
@@ -319,30 +328,25 @@ function main() {
         let right = availArea.x + availArea.width - padding;
         
         // Adjust new geometry to the available Area.
-        if (monitorIndex == global.get_primary_monitor_index()) {
-            top += Main.panel.actor.height;
-        }
-        if (new_x + new_width > right) {
-            new_x = right - new_width;
-        }
-        if (new_x < left){
-            new_x = left;
-        }
-        if (new_y + new_height > bottom) {
-            new_y = bottom - new_height;
-        }
-        if (new_y < top) {
-            new_y = top;
-        }
+        if (monitorIndex == global.get_primary_monitor_index()) top += Main.panel.actor.height;
+        if (new_x + new_width > right) new_x = right - new_width;
+        if (new_x < left) new_x = left;
+        if (new_y + new_height > bottom) new_y = bottom - new_height;
+        if (new_y < top) new_y = top;
         
-        // Zoom the window.
-        Tweener.addTween(this.actor, { 
+        let actor = this.actor;
+        let tweenParams = { 
             x: new_x,
             y: new_y,
             scale_x: new_scale_x,
             scale_y: new_scale_y,
-            time: 0.2,
+            time: TRANSITION_TIME,
             transition: 'easeOutQuad' 
+        };
+        // Zoom the window.
+        this._tweenTimeoutId = Mainloop.timeout_add(TRANSITION_TIMEOUT, function () {  
+            Tweener.addTween(actor, tweenParams);
+            return false;
         });
     }
     
@@ -352,6 +356,7 @@ function main() {
      * should be reset.
      */
     Workspace.WindowClone.prototype.unselect = function(resetGeometry) {
+        Mainloop.source_remove(this._tweenTimeoutId);
         Tweener.removeTweens(this.actor);
         this.actor.reparent(this._origParent);
         if (this._stackAbove == null) {
