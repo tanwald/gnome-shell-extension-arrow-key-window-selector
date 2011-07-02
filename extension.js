@@ -131,8 +131,12 @@ function main() {
         // sw ... selected window
         // cw ... current window
         sw = this._selected.getStoredGeometry();
+        let prevArrowKeyIndex = this._arrowKeyIndex;
+        let wrapArrowKeyIndex = this._arrowKeyIndex;
         // Just in case some user has infinite resolution...
         let minDistance = Number.POSITIVE_INFINITY;
+        let minXYDistance = Number.POSITIVE_INFINITY;
+        let maxXYDistance = 0; 
         if (key == Clutter.Up) {
             for (i in windowOverlays) {
                 let cw = windowOverlays[i].getStoredGeometry();
@@ -141,6 +145,13 @@ function main() {
                     this._arrowKeyIndex = i;
                     minDistance = distance;
                 }
+                let deltaY = Math.abs(sw.center_y - cw.center_y);
+                let deltaX = Math.abs(sw.center_x - cw.center_x);
+                if (cw.y > sw.y + sw.height && deltaX <= minXYDistance && deltaY >= maxXYDistance) {
+                    wrapArrowKeyIndex = i;
+                    minXYDistance = deltaX;
+                    maxXYDistance = deltaY;
+                } 
             }
         } else if (key == Clutter.Down) {
             for (i in windowOverlays) {
@@ -150,6 +161,13 @@ function main() {
                     this._arrowKeyIndex = i;
                     minDistance = distance;
                 }
+                let deltaY = Math.abs(sw.center_y - cw.center_y);
+                let deltaX = Math.abs(sw.center_x - cw.center_x);
+                if (cw.y + cw.height < sw.y && deltaX <= minXYDistance && deltaY >= maxXYDistance) {
+                    wrapArrowKeyIndex = i;
+                    minXYDistance = deltaX;
+                    maxXYDistance = deltaY;
+                } 
             }
         } else if (key == Clutter.Left) {
             for (i in windowOverlays) {
@@ -159,6 +177,13 @@ function main() {
                     this._arrowKeyIndex = i;
                     minDistance = distance;
                 }
+                let deltaY = Math.abs(sw.center_y - cw.center_y);
+                let deltaX = Math.abs(sw.center_x - cw.center_x);
+                if (cw.x > sw.x + sw.width && deltaY <= minXYDistance && deltaX >= maxXYDistance) {
+                    wrapArrowKeyIndex = i;
+                    minXYDistance = deltaY;
+                    maxXYDistance = deltaX;
+                } 
             }
         } else if (key == Clutter.Right) {
             for (i in windowOverlays) {
@@ -168,8 +193,16 @@ function main() {
                     this._arrowKeyIndex = i;
                     minDistance = distance;
                 }
+                let deltaY = Math.abs(sw.center_y - cw.center_y);
+                let deltaX = Math.abs(sw.center_x - cw.center_x);
+                if (cw.x + cw.width < sw.x && deltaY <= minXYDistance && deltaX >= maxXYDistance) {
+                    wrapArrowKeyIndex = i;
+                    minXYDistance = deltaY;
+                    maxXYDistance = deltaX;
+                }
             }
         }
+        if (this._arrowKeyIndex == prevArrowKeyIndex) this._arrowKeyIndex = wrapArrowKeyIndex;
     }
     
     /*
