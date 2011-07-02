@@ -229,11 +229,18 @@ function main() {
     }
     
     /*
-     * Getter for window overlays of the active workspace.
+     * Getter for window overlays of the active workspace and surrounding 
+     * extra workspaces on different monitors.
      * @return: { all(): [ WindowOverlay ], at(index): WindowOverlay }
      */
     WorkspacesView.WorkspacesView.prototype.getWindowOverlays = function() {
         let windowOverlays = this.getActiveWorkspace().getWindowOverlays();
+        for (i in this._extraWorkspaces) {
+            let extraWindowOverlays = this._extraWorkspaces[i].getWindowOverlays().all();
+            for (j in extraWindowOverlays) {
+                windowOverlays.push(extraWindowOverlays[j]);
+            }
+        }
         return {
             all: function() {
                 return windowOverlays.all();
@@ -249,8 +256,9 @@ function main() {
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     
     /*
-     * Getter for window overlays of a workspace.
-     * @return: { all(): [ WindowOverlay ], at(index): WindowOverlay }
+     * Getter for window overlays of a workspace. After the initial call additional window
+     * overlays can be added.
+     * @return: { all(): [ WindowOverlay ], at(index): WindowOverlay, push(WindowOverlay): Number }
      */
     Workspace.Workspace.prototype.getWindowOverlays = function() {
         let windowOverlays = this._windowOverlays;
@@ -260,6 +268,9 @@ function main() {
             },
             at: function(index) {
                 return windowOverlays[index];
+            },
+            push: function(windowOverlay) {
+                return windowOverlays.push(windowOverlay);
             }
         };
     }
