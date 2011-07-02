@@ -50,7 +50,7 @@ function main() {
     
     /*
      * Disconnects the 'key-press-event' listener and ends the selection process
-     * if it was canceled with the super-key.
+     * if it was canceled by the super-key.
      * @TODO: capture the super-key-pressed event directly.
      */
     injectToFunction(WorkspacesView.WorkspacesView.prototype, '_onDestroy', function() {
@@ -78,7 +78,6 @@ function main() {
     /*
      * Entry point for the selection process by arrow keys.
      * @param key: pressed key
-     * @param workspace: the active workspace
      * @return: Boolean
      */
     WorkspacesView.WorkspacesView.prototype._arrowKeyPressed = function(key) {
@@ -104,7 +103,6 @@ function main() {
     /*
      * Activates/closes the currently selected window and/or ends the selection process.
      * @param key: pressed key
-     * @param workspace: the active workspace
      * @return: Boolean (false)
      */
     WorkspacesView.WorkspacesView.prototype._nonArrowKeyPressed = function(key) {
@@ -125,7 +123,7 @@ function main() {
     /*
      * Contains all the logic for selecting a new window based on arrow key input.
      * @param key: pressed key
-     * @param workspace: the active workspace
+     * @param windowOverlays: window overlays of the active workspace
      */
     WorkspacesView.WorkspacesView.prototype._updateArrowKeyIndex = function(key, windowOverlays) {
         // sw ... selected window
@@ -299,7 +297,7 @@ function main() {
         lightbox.highlight(this.actor);
         
         // Calculate the new geometry.
-        let factor = (windowCount > 1) ? 1.5 : 1.1;
+        let factor = (windowCount > 1) ? 1.3 : 1.1;
         let new_scale_x = this.actor.scale_x * factor;
         let new_scale_y = this.actor.scale_y * factor;
         let new_width = this.actor.width * new_scale_x;
