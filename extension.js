@@ -12,10 +12,10 @@ const WorkspacesView = imports.ui.workspacesView;
 /*
  * Helper function for injecting code into existing
  * functions. Taken from other extensions.
- * @param parent: parent class
- * @param name: name of the function
- * @param func: function which is to be injected
- * @return: return-value of original or injected function
+ * @param parent: Parent class.
+ * @param name: Name of the function.
+ * @param func: Function which is to be injected.
+ * @return: Return-value of the original or injected function.
  */
 function injectToFunction(parent, name, func) {
     let origin = parent[name];
@@ -51,7 +51,6 @@ function main() {
     /*
      * Disconnects the 'key-press-event' listener and ends the selection process
      * if it was canceled by the super-key.
-     * @TODO: capture the super-key-pressed event directly.
      */
     injectToFunction(WorkspacesView.WorkspacesView.prototype, '_onDestroy', function() {
         global.stage.disconnect(this._anyKeyPressEventId);
@@ -61,13 +60,12 @@ function main() {
     /*
      * Callback function that is triggered by 'key-press-events' and delegates to the 
      * according subroutines.
-     * @param actor: actor which emits the event
-     * @param event: the event object 
-     * @return: Boolean
+     * @param actor: Actor which emits the event.
+     * @param event: The event object. 
+     * @return: Boolean.
      */
     WorkspacesView.WorkspacesView.prototype._onAnyKeyPress = function(actor, event) {
         let key = event.get_key_symbol();
-        // Check if an arrow key was pressed
         if (key == Clutter.Up || key == Clutter.Down || key == Clutter.Left || key == Clutter.Right) {
             return this._arrowKeyPressed(key);
         } else {
@@ -77,33 +75,32 @@ function main() {
     
     /*
      * Entry point for the selection process by arrow keys.
-     * @param key: pressed key
-     * @return: Boolean
+     * @param key: Pressed key.
+     * @return: Boolean.
      */
     WorkspacesView.WorkspacesView.prototype._arrowKeyPressed = function(key) {
         let windowOverlays = this.getWindowOverlays();
+        // Stop immediately if there are no windows.
         if (windowOverlays.all().length < 1) {
             return false;
         // If this method has been called before, we already have a selected window.
         } else if (this._selected) {
-            this._selected.getWindowClone().unselect(true);
             this._updateArrowKeyIndex(key, windowOverlays.all());
+            this._selected.unselect(true);
         // Otherwise we have to initialize the selection process.
         } else {
             this._initSelection(windowOverlays.all());
         }
-        
         // Define the new/initially selected window and highlight it.
         this._selected = windowOverlays.at(this._arrowKeyIndex);
-        // @TODO: Maybe also zoom the window overlays.
-        this._selected.getWindowClone().select(this._lightbox, windowOverlays.all().length);
+        this._selected.select(this._lightbox, windowOverlays.all().length);
         return true;
     }
     
     /*
      * Activates/closes the currently selected window and/or ends the selection process.
-     * @param key: pressed key
-     * @return: Boolean (false)
+     * @param key: Pressed key.
+     * @return: Boolean.
      */
     WorkspacesView.WorkspacesView.prototype._nonArrowKeyPressed = function(key) {
         if (this._selected && key == Clutter.Return) {
@@ -122,12 +119,12 @@ function main() {
     
     /*
      * Contains all the logic for selecting a new window based on arrow key input.
-     * @param key: pressed key
-     * @param windowOverlays: window overlays of the active workspace
+     * @param key: Pressed key.
+     * @param windowOverlays: Window overlays of the active workspace and extra workspaces.
      */
     WorkspacesView.WorkspacesView.prototype._updateArrowKeyIndex = function(key, windowOverlays) {
-        // sw ... selected window
-        // cw ... current window
+        // sw ... selected window.
+        // cw ... current window.
         sw = this._selected.getStoredGeometry();
         // Just in case some user has infinite resolution...
         let minDistance = Number.POSITIVE_INFINITY;
@@ -172,9 +169,9 @@ function main() {
     
     /*
      * Calculates the Manhattan-Distance of two windows in overview mode. 
-     * @param sw: selected window
-     * @param cw: currently evaluated window
-     * @return: Number
+     * @param sw: Selected window.
+     * @param cw: Currently evaluated window.
+     * @return: Number.
      */
     WorkspacesView.WorkspacesView.prototype._calcDistance = function(sw, cw) {
         return Math.abs(sw.center_x - cw.center_x) + Math.abs(sw.center_y - cw.center_y);
@@ -185,6 +182,7 @@ function main() {
      * and stores the window geometry of clones. Motion- and button-press-event 
      * listeners assure that the selection process gets terminated if the user wants
      * to do something else.
+     * @param windowOverlays: Window overlays of the active workspace and extra workspaces.
      */
     WorkspacesView.WorkspacesView.prototype._initSelection = function(windowOverlays) {
         this._anyButtonPressEventId = global.stage.connect('button-press-event', Lang.bind(this, this._endSelectionForListener));
@@ -203,7 +201,7 @@ function main() {
     /*
      * Tidy up all actors and adjustments that were introduced during the
      * selection process.
-     * @param resetGeometry: flag which indicates if the geometry of a 
+     * @param resetGeometry: Flag which indicates if the geometry of the 
      * selected window should be reset.
      */
     WorkspacesView.WorkspacesView.prototype._endSelection = function(resetGeometry) {
@@ -212,7 +210,7 @@ function main() {
         if (this._selected) {
             global.stage.disconnect(this._anyButtonPressEventId);
             global.stage.disconnect(this._anyMotionEventId);
-            this._selected.getWindowClone().unselect(resetGeometry);
+            this._selected.unselect(resetGeometry);
             this._selected = null;
             this._lightbox.hide();
             this._lightbox.destroy();
@@ -222,7 +220,7 @@ function main() {
     }
     
     /*
-     * See _endSelection. Always resets geometry.
+     * See WorkspacesView._endSelection. Always resets geometry.
      */
     WorkspacesView.WorkspacesView.prototype._endSelectionForListener = function() {
         this._endSelection(true);
@@ -297,8 +295,8 @@ function main() {
     
     /*
      * Highlights and zooms the currently selected window.
-     * @param lightbox: a reference to the lightbox introduced by _initSelection
-     * @param windowCount: number of windows on the active workspace
+     * @param lightbox: A reference to the lightbox introduced by WorkspacesView._initSelection.
+     * @param windowCount: Number of windows on the active workspace.
      */
     Workspace.WindowClone.prototype.select = function(lightbox, windowCount) {
         // Store the original parent and highlight the window.
@@ -306,7 +304,6 @@ function main() {
         this.actor.reparent(Main.uiGroup);
         this.actor.raise_top();
         lightbox.highlight(this.actor);
-        
         // Calculate the new geometry.
         let factor = (windowCount > 1) ? 1.3 : 1.1;
         let new_scale_x = this.actor.scale_x * factor;
@@ -317,8 +314,7 @@ function main() {
         let delta_height = new_height - this.actor.height * this.actor.scale_y;
         let new_x = this.actor.x - delta_width / 2;
         let new_y = this.actor.y - delta_height / 2;
-        
-        // Define available Area.
+        // Define the available Area.
         let monitorIndex = this.metaWindow.get_monitor();
         let availArea = global.get_monitors()[monitorIndex];
         let padding = 50;
@@ -326,8 +322,7 @@ function main() {
         let bottom = availArea.y + availArea.height - padding;
         let left = availArea.x + padding;
         let right = availArea.x + availArea.width - padding;
-        
-        // Adjust new geometry to the available Area.
+        // Adjust the new geometry to the available Area.
         if (monitorIndex == global.get_primary_monitor_index()) {
             top += Main.panel.actor.height;
         }
@@ -343,7 +338,6 @@ function main() {
         if (new_y < top) {
             new_y = top;
         }
-        
         // Zoom the window.
         Tweener.addTween(this.actor, { 
             x: new_x,
@@ -356,8 +350,8 @@ function main() {
     }
     
     /*
-     * Undoes the adjustments done by select().
-     * @param resetGeometry: flag which indicates if the geometry 
+     * Undoes the adjustments done by WindowClone.select.
+     * @param resetGeometry: Flag which indicates if the geometry 
      * should be reset.
      */
     Workspace.WindowClone.prototype.unselect = function(resetGeometry) {
@@ -374,13 +368,6 @@ function main() {
             this.actor.scale_x = this.storedGeometry.scale_x;
             this.actor.scale_y = this.storedGeometry.scale_y; 
         }
-    }
-    
-    /*
-     * Closes the associated window.
-     */
-    Workspace.WindowOverlay.prototype.closeWindow = function() {
-        this._closeWindow(null);
     }
     
     /*
@@ -404,10 +391,37 @@ function main() {
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////   
 // WindowOverlay ////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    /*
+     * Selects the associated window. See WindowClone.select.
+     * @param lightbox: A reference to the lightbox introduced by WorkspacesView._initSelection.
+     * @param windowCount: Number of windows on the active workspace.
+     */
+    Workspace.WindowOverlay.prototype.select = function(lightbox, windowCount) {
+        this.hide();
+        this._windowClone.select(lightbox, windowCount);
+    }
+    
+    /*
+     * Unselects the associated window. See WindowClone.unselect.
+     * @param resetGeometry: Flag which indicates if the geometry 
+     * should be reset.
+     */
+    Workspace.WindowOverlay.prototype.unselect = function(resetGeometry) {
+        this.show();
+        this._windowClone.unselect(resetGeometry);
+    }
+    
+    /*
+     * Closes the associated window.
+     */
+    Workspace.WindowOverlay.prototype.closeWindow = function() {
+        this._closeWindow(null);
+    }
     
     /*
      * Returns a geometry-info object of the window clone.
-     * @return: Object
+     * @return: Object.
      */
     Workspace.WindowOverlay.prototype.getStoredGeometry = function() {
         return this._windowClone.storedGeometry;
@@ -415,7 +429,7 @@ function main() {
     
     /*
      * Getter for the window clone.
-     * @return: WindowClone
+     * @return: WindowClone.
      */
     Workspace.WindowOverlay.prototype.getWindowClone = function() {
         return this._windowClone;
@@ -423,7 +437,7 @@ function main() {
     
     /*
      * Getter for the meta window.
-     * @return: MetaWindow
+     * @return: MetaWindow.
      */
     Workspace.WindowOverlay.prototype.getMetaWindow = function() {
         return this._windowClone.metaWindow;
