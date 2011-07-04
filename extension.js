@@ -80,20 +80,25 @@ function main() {
      */
     WorkspacesView.WorkspacesView.prototype._arrowKeyPressed = function(key) {
         let windowOverlays = this.getWindowOverlays();
+        let prevArrowKeyIndex = this._arrowKeyIndex;
         // Stop immediately if there are no windows.
         if (windowOverlays.all().length < 1) {
             return false;
         // If this method has been called before, we already have a selected window.
         } else if (this._selected) {
             this._updateArrowKeyIndex(key, windowOverlays.all());
-            this._selected.unselect(true);
+            if (this._arrowKeyIndex != prevArrowKeyIndex) {
+                this._selected.unselect(true);
+            }
         // Otherwise we have to initialize the selection process.
         } else {
             this._initSelection(windowOverlays.all());
         }
         // Define the new/initially selected window and highlight it.
-        this._selected = windowOverlays.at(this._arrowKeyIndex);
-        this._selected.select(this._lightbox, windowOverlays.all().length);
+        if (this._arrowKeyIndex != prevArrowKeyIndex || this._selected == null) {
+            this._selected = windowOverlays.at(this._arrowKeyIndex);
+            this._selected.select(this._lightbox, windowOverlays.all().length); 
+        }
         return true;
     }
     
@@ -125,7 +130,7 @@ function main() {
     WorkspacesView.WorkspacesView.prototype._updateArrowKeyIndex = function(key, windowOverlays) {
         // sw ... selected window.
         // cw ... current window.
-        sw = this._selected.getStoredGeometry();
+        let sw = this._selected.getStoredGeometry();
         // Just in case some user has infinite resolution...
         let minDistance = Number.POSITIVE_INFINITY;
         if (key == Clutter.Up) {
@@ -282,7 +287,11 @@ function main() {
      * for terminating the scroll-zooming process when you want to start selecting.
      */
     injectToFunction(Workspace.WindowClone.prototype, '_init', function(realWindow) {
-        this._anyKeyPressEventId = global.stage.connect('key-press-event', Lang.bind(this, this._zoomEnd));
+        this._anyKeyPressEventId = global.stage.connect('key-press-event', Lang.bind(this, function() {
+            if (this._zooming) {
+                this._zoomEnd();
+            }
+        }));
         this.storedGeometry = {};
     });
     
