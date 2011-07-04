@@ -5,6 +5,7 @@ const Lang = imports.lang;
 
 const Lightbox = imports.ui.lightbox;
 const Main = imports.ui.main;
+const Shell = imports.gi.Shell;
 const Tweener = imports.ui.tweener;
 const Workspace = imports.ui.workspace;
 const WorkspacesView = imports.ui.workspacesView;
@@ -30,6 +31,16 @@ function injectToFunction(parent, name, func) {
 }
 
 function main() {
+    function switch_workspace(offset) {
+        let activate_index = global.screen.get_active_workspace_index()
+        let new_index = activate_index + offset;
+        if(new_index < 0 || new_index > global.screen.get_n_workspaces()) {
+            return;
+        }
+
+        let next_workspace = global.screen.get_workspace_by_index(new_index);
+        next_workspace.activate(true);
+    };
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // WorkspaceView ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -66,10 +77,11 @@ function main() {
      */
     WorkspacesView.WorkspacesView.prototype._onAnyKeyPress = function(actor, event) {
         let key = event.get_key_symbol();
+        let state = Shell.get_event_state(event);
         if (key == Clutter.Up || key == Clutter.Down || key == Clutter.Left || key == Clutter.Right) {
             return this._arrowKeyPressed(key);
         } else {
-            return this._nonArrowKeyPressed(key);
+            return this._nonArrowKeyPressed(key, state);
         }
     }
     
@@ -102,7 +114,7 @@ function main() {
      * @param key: Pressed key.
      * @return: Boolean.
      */
-    WorkspacesView.WorkspacesView.prototype._nonArrowKeyPressed = function(key) {
+    WorkspacesView.WorkspacesView.prototype._nonArrowKeyPressed = function(key, modifierState) {
         if (this._selected && key == Clutter.Return) {
             let metaWindow = this.getWindowOverlays().at(this._arrowKeyIndex).getMetaWindow();
             this._endSelection(false);
@@ -113,9 +125,17 @@ function main() {
             windowOverlay.closeWindow();
         } else {
             this._endSelection(true);
+            if(!modifierState) {
+                if (key == Clutter.Page_Down) {
+                    switch_workspace(1);
+                } else if (key == Clutter.Page_Up) {
+                    switch_workspace(-1);
+                }
+            }
         }
         return false;
     }
+
     
     /*
      * Contains all the logic for selecting a new window based on arrow key input.
