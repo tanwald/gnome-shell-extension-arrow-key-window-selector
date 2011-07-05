@@ -31,15 +31,19 @@ function injectToFunction(parent, name, func) {
 }
 
 function main() {
-    function switch_workspace(offset) {
-        let activate_index = global.screen.get_active_workspace_index()
-        let new_index = activate_index + offset;
-        if(new_index < 0 || new_index > global.screen.get_n_workspaces()) {
+    
+    /*
+     * Switches the active workspace. Contribution by Tim Cuthbertson.
+     * @param offset: workspace index offset.
+     */
+    function switchWorkspace(offset) {
+        let activeIndex = global.screen.get_active_workspace_index();
+        let nextIndex = activeIndex + offset;
+        if(nextIndex < 0 || nextIndex > global.screen.get_n_workspaces()) {
             return;
         }
-
-        let next_workspace = global.screen.get_workspace_by_index(new_index);
-        next_workspace.activate(true);
+        let nextWorkspace = global.screen.get_workspace_by_index(nextIndex);
+        nextWorkspace.activate(true);
     };
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -132,9 +136,9 @@ function main() {
             this._endSelection(true);
             if(!modifierState) {
                 if (key == Clutter.Page_Down) {
-                    switch_workspace(1);
+                    switchWorkspace(1);
                 } else if (key == Clutter.Page_Up) {
-                    switch_workspace(-1);
+                    switchWorkspace(-1);
                 }
             }
         }
