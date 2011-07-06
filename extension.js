@@ -39,7 +39,7 @@ function main() {
     function switchWorkspace(offset) {
         let activeIndex = global.screen.get_active_workspace_index();
         let nextIndex = activeIndex + offset;
-        if(nextIndex < 0 || nextIndex > global.screen.get_n_workspaces()) {
+        if(nextIndex < 0 || nextIndex >= global.screen.get_n_workspaces()) {
             return;
         }
         let nextWorkspace = global.screen.get_workspace_by_index(nextIndex);
