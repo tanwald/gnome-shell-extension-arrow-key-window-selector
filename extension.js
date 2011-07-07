@@ -51,12 +51,16 @@ function main() {
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     
     /*
-     * Introduces four additional members and registers a 'key-press-event' listener.
+     * Introduces five additional members and registers a 'key-press-event' listener.
      */
     injectToFunction(WorkspacesView.WorkspacesView.prototype, '_init', function(width, height, x, y, workspaces) {
         this._anyKeyPressEventId = global.stage.connect('key-press-event', Lang.bind(this, this._onAnyKeyPress));
         // Index of the window that is - or is to be - selected.
         this._arrowKeyIndex = 0;
+        // Navigation memory for making every navigation-step reversible. Otherwise you could navigate into one direction
+        // and the next move into the opposite direction would not bring you back to the origin if there was a closer
+        // window in that direction. As a side effect navigation rules are cached.
+        this._navMemory = [];
         // The currently selected window. Actually it's the window overlay because it 
         // contains the most information and has access to other abstractions.
         this._selected = null;
@@ -96,14 +100,14 @@ function main() {
      */
     WorkspacesView.WorkspacesView.prototype._arrowKeyPressed = function(key) {
         let windowOverlays = this.getWindowOverlays();
-        let prevArrowKeyIndex = this._arrowKeyIndex;
+        let currArrowKeyIndex = this._arrowKeyIndex;
         // Stop immediately if there are no windows.
         if (windowOverlays.all().length < 1) {
             return false;
         // If this method has been called before, we already have a selected window.
         } else if (this._selected) {
             this._updateArrowKeyIndex(key, windowOverlays.all());
-            if (this._arrowKeyIndex != prevArrowKeyIndex) {
+            if (this._arrowKeyIndex != currArrowKeyIndex) {
                 this._selected.unselect(true);
             }
         // Otherwise we have to initialize the selection process.
@@ -111,7 +115,7 @@ function main() {
             this._initSelection(windowOverlays.all());
         }
         // Define the new/initially selected window and highlight it.
-        if (this._arrowKeyIndex != prevArrowKeyIndex || this._selected == null) {
+        if (this._arrowKeyIndex != currArrowKeyIndex || this._selected == null) {
             this._selected = windowOverlays.at(this._arrowKeyIndex);
             this._selected.select(this._lightbox, windowOverlays.all().length); 
         }
@@ -155,43 +159,79 @@ function main() {
         // sw ... selected window.
         // cw ... current window.
         let sw = this._selected.getStoredGeometry();
+        let currArrowKeyIndex = this._arrowKeyIndex;
         // Just in case some user has infinite resolution...
         let minDistance = Number.POSITIVE_INFINITY;
+        // Move up.
         if (key == Clutter.Up) {
-            for (i in windowOverlays) {
-                let cw = windowOverlays[i].getStoredGeometry();
-                let distance = this._calcDistance(sw, cw);
-                if (cw.y + cw.height < sw.y && distance < minDistance) {
-                    this._arrowKeyIndex = i;
-                    minDistance = distance;
-                }
+            if(this._navMemory[this._arrowKeyIndex][key]) {
+                // Retrieve navigation rule.
+                this._arrowKeyIndex = this._navMemory[this._arrowKeyIndex][key];
+            } else {
+                // Find closest window in that direction.
+                for (i in windowOverlays) {
+                    let cw = windowOverlays[i].getStoredGeometry();
+                    let distance = this._calcDistance(sw, cw);
+                    if (cw.y + cw.height < sw.y && distance < minDistance) {
+                        this._arrowKeyIndex = i;
+                        minDistance = distance;
+                    }
+                } 
             }
+            // Store reverse navigation rule.
+            if (this._arrowKeyIndex != currArrowKeyIndex) {
+                this._navMemory[this._arrowKeyIndex][Clutter.Down] = currArrowKeyIndex;
+            }
+        // Move down.
         } else if (key == Clutter.Down) {
-            for (i in windowOverlays) {
-                let cw = windowOverlays[i].getStoredGeometry();
-                let distance = this._calcDistance(sw, cw);
-                if (cw.y > sw.y + sw.height && distance < minDistance) {
-                    this._arrowKeyIndex = i;
-                    minDistance = distance;
+            if(this._navMemory[this._arrowKeyIndex][key]) {
+                this._arrowKeyIndex = this._navMemory[this._arrowKeyIndex][key];
+            } else {
+                for (i in windowOverlays) {
+                    let cw = windowOverlays[i].getStoredGeometry();
+                    let distance = this._calcDistance(sw, cw);
+                    if (cw.y > sw.y + sw.height && distance < minDistance) {
+                        this._arrowKeyIndex = i;
+                        minDistance = distance;
+                    }
                 }
             }
+            if (this._arrowKeyIndex != currArrowKeyIndex) {
+                this._navMemory[this._arrowKeyIndex][Clutter.Up] = currArrowKeyIndex;
+            }
+        // Move left.
         } else if (key == Clutter.Left) {
-            for (i in windowOverlays) {
-                let cw = windowOverlays[i].getStoredGeometry();
-                let distance = this._calcDistance(sw, cw);
-                if (cw.x + cw.width < sw.x && distance < minDistance) {
-                    this._arrowKeyIndex = i;
-                    minDistance = distance;
+            if(this._navMemory[this._arrowKeyIndex][key]) {
+                this._arrowKeyIndex = this._navMemory[this._arrowKeyIndex][key];
+            } else {
+                for (i in windowOverlays) {
+                    let cw = windowOverlays[i].getStoredGeometry();
+                    let distance = this._calcDistance(sw, cw);
+                    if (cw.x + cw.width < sw.x && distance < minDistance) {
+                        this._arrowKeyIndex = i;
+                        minDistance = distance;
+                    }
                 }
             }
+            if (this._arrowKeyIndex != currArrowKeyIndex) {
+                this._navMemory[this._arrowKeyIndex][Clutter.Right] = currArrowKeyIndex;
+            }
+        // Move right.
         } else if (key == Clutter.Right) {
-            for (i in windowOverlays) {
-                let cw = windowOverlays[i].getStoredGeometry();
-                let distance = this._calcDistance(sw, cw);
-                if (cw.x > sw.x + sw.width && distance < minDistance) {
-                    this._arrowKeyIndex = i;
-                    minDistance = distance;
+            if(this._navMemory[this._arrowKeyIndex][key]) {
+                this._arrowKeyIndex = this._navMemory[this._arrowKeyIndex][key];
+            } else {
+                for (i in windowOverlays) {
+                    let cw = windowOverlays[i].getStoredGeometry();
+                    let distance = this._calcDistance(sw, cw);
+                    if (cw.x > sw.x + sw.width && distance < minDistance) {
+                        this._arrowKeyIndex = i;
+                        minDistance = distance;
+                    }
                 }
+            }
+            if (this._arrowKeyIndex != currArrowKeyIndex) {
+                this._navMemory[this._arrowKeyIndex][Clutter.Left] = currArrowKeyIndex;
             }
         }
     }
@@ -224,6 +264,7 @@ function main() {
                 this._arrowKeyIndex = i;
             }
             windowOverlays[i].getWindowClone().createGeometrySnapshot();
+            this._navMemory[i] = {};
         }
     }
     
