@@ -1,4 +1,4 @@
-GNOME-SHELL-EXTENSION: ARROW-KEY-WINDOW-SELECTOR
+ARROW-KEY-WINDOW-SELECTOR
 
 This extension allows you to select windows in overview
 mode with the arrow keys of your keyboard. When you
@@ -8,6 +8,9 @@ highlighted. As soon as you have navigated to the desired
 window you can press ENTER for activating the window or
 DELETE for closing it. Mouse events and other key events
 will terminate the selection process.
+
+Contribution by Tim Cuthbertson:
+Switch workspaces in overview mode mit PG_UP and PG_DOWN. 
 
 INSTALLATION:
 
