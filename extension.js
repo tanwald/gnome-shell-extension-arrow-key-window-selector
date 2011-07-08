@@ -2,6 +2,7 @@
 
 const Clutter = imports.gi.Clutter;
 const Lang = imports.lang;
+const Mainloop = imports.mainloop;
 
 const Lightbox = imports.ui.lightbox;
 const Main = imports.ui.main;
@@ -421,6 +422,7 @@ function main() {
             time: 0.2,
             transition: 'easeOutQuad' 
         });
+        return [new_x, new_y, new_width, new_height];
     }
     
     /*
@@ -442,6 +444,8 @@ function main() {
             this.actor.scale_x = this.storedGeometry.scale_x;
             this.actor.scale_y = this.storedGeometry.scale_y; 
         }
+        return [this.storedGeometry.x, this.storedGeometry.y, 
+                this.storedGeometry.width, this.storedGeometry.height];
     }
     
     /*
@@ -473,7 +477,12 @@ function main() {
      */
     Workspace.WindowOverlay.prototype.select = function(lightbox, windowCount) {
         this.hide();
-        this._windowClone.select(lightbox, windowCount);
+        [new_x, new_y, new_width, new_height] = this._windowClone.select(lightbox, windowCount);
+        this.updatePositions(new_x, new_y, new_width, new_height);
+        this._timeoutId = Mainloop.timeout_add(500, Lang.bind(this, function () {
+            this.show();
+            return false;
+        }));
     }
     
     /*
@@ -482,8 +491,11 @@ function main() {
      * should be reset.
      */
     Workspace.WindowOverlay.prototype.unselect = function(resetGeometry) {
+        Mainloop.source_remove(this._timeoutId);
+        this.hide();
+        [new_x, new_y, new_width, new_height] = this._windowClone.unselect(resetGeometry);
+        this.updatePositions(new_x, new_y, new_width, new_height);
         this.show();
-        this._windowClone.unselect(resetGeometry);
     }
     
     /*
