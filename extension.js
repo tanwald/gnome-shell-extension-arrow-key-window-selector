@@ -101,8 +101,8 @@ function main() {
     WorkspacesView.WorkspacesView.prototype._arrowKeyPressed = function(key) {
         let windowOverlays = this.getWindowOverlays();
         let currArrowKeyIndex = this._arrowKeyIndex;
-        // Stop immediately if there are no windows.
-        if (windowOverlays.all().length < 1) {
+        // Stop immediately if there are no windows or if they need repositioning.
+        if (windowOverlays.all().length < 1 || this.getActiveWorkspace().isRepositioning()) {
             return false;
         // If this method has been called before, we already have a selected window.
         } else if (this._selected) {
@@ -128,6 +128,7 @@ function main() {
      * @return: Boolean.
      */
     WorkspacesView.WorkspacesView.prototype._nonArrowKeyPressed = function(key, modifierState) {
+        let workspaceIndex = key - Clutter.F1;
         if (this._selected && key == Clutter.Return) {
             let metaWindow = this.getWindowOverlays().at(this._arrowKeyIndex).getMetaWindow();
             this._endSelection(false);
@@ -136,6 +137,10 @@ function main() {
             let windowOverlay = this.getWindowOverlays().at(this._arrowKeyIndex);
             this._endSelection(false);
             windowOverlay.closeWindow();
+        } else if(this._selected && workspaceIndex >= 0 && workspaceIndex < global.screen.get_n_workspaces()) {
+            let window = this._selected.getMetaWindow();
+            this._endSelection(true);
+            window.change_workspace_by_index(workspaceIndex, false, global.get_current_time());
         } else {
             this._endSelection(true);
             if(!modifierState) {
@@ -341,6 +346,14 @@ function main() {
                 return windowOverlays.push(windowOverlay);
             }
         };
+    }
+    
+    /*
+     * Returns true if the workspace is repositioning its windows.
+     * @return: Boolean.
+     */
+    Workspace.Workspace.prototype.isRepositioning = function() {
+        return this._repositionWindowsId != 0;
     }
     
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////// 

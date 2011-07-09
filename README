@@ -6,8 +6,9 @@ are in overview mode and press an arrow key, the
 most recently focused window will be selected and
 highlighted. As soon as you have navigated to the desired
 window you can press ENTER for activating the window or
-DELETE for closing it. Mouse events and other key events
-will terminate the selection process.
+DELETE for closing it. Pressing F1-F10 will move the window
+to the corresponding workspace. Mouse events and other key 
+events will terminate the selection process.
 
 Contribution by Tim Cuthbertson:
 Switch workspaces in overview mode mit PG_UP and PG_DOWN. 
