@@ -117,7 +117,7 @@ function main() {
         // Define the new/initially selected window and highlight it.
         if (this._arrowKeyIndex != currArrowKeyIndex || this._selected == null) {
             this._selected = windowOverlays.at(this._arrowKeyIndex);
-            this._selected.select(this._lightbox, windowOverlays.all().length); 
+            this._selected.select(this._lightbox); 
         }
         return true;
     }
@@ -291,6 +291,7 @@ function main() {
             this._lightbox.destroy();
             this._lightbox = null;
             this._arrowKeyIndex = 0;
+            this._navMemory = [];
         }
     }
     
@@ -334,7 +335,7 @@ function main() {
      * @return: { all(): [ WindowOverlay ], at(index): WindowOverlay, push(WindowOverlay): Number }
      */
     Workspace.Workspace.prototype.getWindowOverlays = function() {
-        let windowOverlays = this._windowOverlays;
+        let windowOverlays = this._windowOverlays.slice();
         return {
             all: function() {
                 return windowOverlays;
@@ -385,52 +386,54 @@ function main() {
      * @param lightbox: A reference to the lightbox introduced by WorkspacesView._initSelection.
      * @param windowCount: Number of windows on the active workspace.
      */
-    Workspace.WindowClone.prototype.select = function(lightbox, windowCount) {
+    Workspace.WindowClone.prototype.select = function(lightbox) {
         // Store the original parent and highlight the window.
         this._origParent = this.actor.get_parent();
         this.actor.reparent(Main.uiGroup);
         this.actor.raise_top();
         lightbox.highlight(this.actor);
-        // Calculate the new geometry.
-        let factor = (windowCount > 1) ? 1.3 : 1.1;
-        let new_scale_x = this.actor.scale_x * factor;
-        let new_scale_y = this.actor.scale_y * factor;
-        let new_width = this.actor.width * new_scale_x;
-        let new_height = this.actor.height * new_scale_y;
-        let delta_width =  new_width - this.actor.width * this.actor.scale_x;
-        let delta_height = new_height - this.actor.height * this.actor.scale_y;
-        let new_x = this.actor.x - delta_width / 2;
-        let new_y = this.actor.y - delta_height / 2;
-        // Define the available Area.
+        // Define the available area.
         let monitorIndex = this.metaWindow.get_monitor();
         let availArea = global.get_monitors()[monitorIndex];
-        let padding = 50;
-        let top = availArea.y + padding;
-        let bottom = availArea.y + availArea.height - padding;
-        let left = availArea.x + padding;
-        let right = availArea.x + availArea.width - padding;
-        // Adjust the new geometry to the available Area.
-        if (monitorIndex == global.get_primary_monitor_index()) {
-            top += Main.panel.actor.height;
+        let padding = 30;
+        let limitTop = availArea.y + padding;
+        let limitBottom = availArea.y + availArea.height - padding;
+        let limitLeft = availArea.x + padding;
+        let limitRight = availArea.x + availArea.width - padding;
+        let limitWidth = limitRight - limitLeft;
+        let limitHeight = limitBottom - limitTop;
+        // Calculate the desired new dimension.
+        let factor = 1.3;
+        let newScaleX = this.actor.scale_x * factor;
+        let newScaleY = this.actor.scale_y * factor;
+        let newWidth = this.actor.width * newScaleX;
+        let newHeight = this.actor.height * newScaleY;
+        // Adjust the dimension to the available area.
+        while (newWidth > limitWidth || newHeight > limitHeight || 
+               newScaleX > 1.0 || newScaleY > 1.0) {
+            factor -= 0.1;
+            newScaleX = this.actor.scale_x * factor;
+            newScaleY = this.actor.scale_y * factor;
+            newWidth = this.actor.width * newScaleX;
+            newHeight = this.actor.height * newScaleY;
         }
-        if (new_x + new_width > right) {
-            new_x = right - new_width;
-        }
-        if (new_x < left){
-            new_x = left;
-        }
-        if (new_y + new_height > bottom) {
-            new_y = bottom - new_height;
-        }
-        if (new_y < top) {
-            new_y = top;
-        }
+        // Calculate the desired new position.
+        let deltaWidth =  newWidth - this.actor.width * this.actor.scale_x;
+        let deltaHeight = newHeight - this.actor.height * this.actor.scale_y;
+        let newX = this.actor.x - deltaWidth / 2;
+        let newY = this.actor.y - deltaHeight / 2;
+        // Adjust the new position to the available area.
+        if (monitorIndex == global.get_primary_monitor_index()) limitTop += Main.panel.actor.height;
+        if (newX + newWidth > limitRight) newX = limitRight - newWidth;
+        if (newX < limitLeft) newX = limitLeft;
+        if (newY + newHeight > limitBottom) newY = limitBottom - newHeight;
+        if (newY < limitTop) newY = limitTop;
         // Zoom the window.
         Tweener.addTween(this.actor, { 
-            x: new_x,
-            y: new_y,
-            scale_x: new_scale_x,
-            scale_y: new_scale_y,
+            x: newX,
+            y: newY,
+            scale_x: newScaleX,
+            scale_y: newScaleY,
             time: 0.2,
             transition: 'easeOutQuad' 
         });
