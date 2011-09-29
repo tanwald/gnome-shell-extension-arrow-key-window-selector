@@ -30,11 +30,7 @@ function injectToFunction(parent, name, func) {
     }
 }
 
-function init() {
-    
-}
-
-function enable() {
+function main() {
     
     /*
      * Switches the active workspace. Contribution by Tim Cuthbertson.
@@ -398,7 +394,7 @@ function enable() {
         lightbox.highlight(this.actor);
         // Define the available area.
         let monitorIndex = this.metaWindow.get_monitor();
-        let availArea = Main.layoutManager.monitors[monitorIndex];
+        let availArea = global.get_monitors()[monitorIndex];
         let padding = 30;
         let limitTop = availArea.y + padding;
         let limitBottom = availArea.y + availArea.height - padding;
@@ -427,7 +423,7 @@ function enable() {
         let newX = this.actor.x - deltaWidth / 2;
         let newY = this.actor.y - deltaHeight / 2;
         // Adjust the new position to the available area.
-        if (monitorIndex == Main.layoutManager.primaryIndex) limitTop += Main.panel.actor.height;
+        if (monitorIndex == global.get_primary_monitor_index()) limitTop += Main.panel.actor.height;
         if (newX + newWidth > limitRight) newX = limitRight - newWidth;
         if (newX < limitLeft) newX = limitLeft;
         if (newY + newHeight > limitBottom) newY = limitBottom - newHeight;
@@ -536,12 +532,5 @@ function enable() {
     Workspace.WindowOverlay.prototype.getMetaWindow = function() {
         return this._windowClone.metaWindow;
     }
-    
-    log('Arrow Key Window Selector enabled');
-}
-
-
-function disable() {
-    log('Arrow Key Window Selector disabled');
 }
 
