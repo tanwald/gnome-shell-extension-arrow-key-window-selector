@@ -27,7 +27,7 @@ function injectToFunction(parent, name, func) {
             ret = func.apply(this, arguments);
         }
         return ret;
-    }
+    };
 }
 
 function init() {
@@ -89,11 +89,10 @@ function enable() {
      */
     WorkspacesView.WorkspacesView.prototype._onAnyKeyPress = function(actor, event) {
         let key = event.get_key_symbol();
-        let state = Shell.get_event_state(event);
         if (key == Clutter.Up || key == Clutter.Down || key == Clutter.Left || key == Clutter.Right) {
             return this._arrowKeyPressed(key);
         } else {
-            return this._nonArrowKeyPressed(key, state);
+            return this._nonArrowKeyPressed(key, null);
         }
     }
     
@@ -131,7 +130,7 @@ function enable() {
      * @param key: Pressed key.
      * @return: Boolean.
      */
-    WorkspacesView.WorkspacesView.prototype._nonArrowKeyPressed = function(key, modifierState) {
+    WorkspacesView.WorkspacesView.prototype._nonArrowKeyPressed = function(key) {
         let workspaceIndex = key - Clutter.F1;
         if (this._selected && key == Clutter.Return) {
             let metaWindow = this.getWindowOverlays().at(this._arrowKeyIndex).getMetaWindow();
@@ -147,12 +146,10 @@ function enable() {
             window.change_workspace_by_index(workspaceIndex, false, global.get_current_time());
         } else {
             this._endSelection(true);
-            if(!modifierState) {
-                if (key == Clutter.Page_Down) {
-                    switchWorkspace(1);
-                } else if (key == Clutter.Page_Up) {
-                    switchWorkspace(-1);
-                }
+            if (key == Clutter.Page_Down) {
+                switchWorkspace(1);
+            } else if (key == Clutter.Page_Up) {
+                switchWorkspace(-1);
             }
         }
         return false;
@@ -178,7 +175,7 @@ function enable() {
                 this._arrowKeyIndex = this._navMemory[this._arrowKeyIndex][key];
             } else {
                 // Find closest window in that direction.
-                for (i in windowOverlays) {
+                for (var i in windowOverlays) {
                     let cw = windowOverlays[i].getStoredGeometry();
                     let distance = this._calcDistance(sw, cw);
                     if (cw.y + cw.height < sw.y && distance < minDistance) {
@@ -196,7 +193,7 @@ function enable() {
             if(this._navMemory[this._arrowKeyIndex][key]) {
                 this._arrowKeyIndex = this._navMemory[this._arrowKeyIndex][key];
             } else {
-                for (i in windowOverlays) {
+                for (var i in windowOverlays) {
                     let cw = windowOverlays[i].getStoredGeometry();
                     let distance = this._calcDistance(sw, cw);
                     if (cw.y > sw.y + sw.height && distance < minDistance) {
@@ -213,7 +210,7 @@ function enable() {
             if(this._navMemory[this._arrowKeyIndex][key]) {
                 this._arrowKeyIndex = this._navMemory[this._arrowKeyIndex][key];
             } else {
-                for (i in windowOverlays) {
+                for (var i in windowOverlays) {
                     let cw = windowOverlays[i].getStoredGeometry();
                     let distance = this._calcDistance(sw, cw);
                     if (cw.x + cw.width < sw.x && distance < minDistance) {
@@ -230,7 +227,7 @@ function enable() {
             if(this._navMemory[this._arrowKeyIndex][key]) {
                 this._arrowKeyIndex = this._navMemory[this._arrowKeyIndex][key];
             } else {
-                for (i in windowOverlays) {
+                for (var i in windowOverlays) {
                     let cw = windowOverlays[i].getStoredGeometry();
                     let distance = this._calcDistance(sw, cw);
                     if (cw.x > sw.x + sw.width && distance < minDistance) {
@@ -265,10 +262,10 @@ function enable() {
     WorkspacesView.WorkspacesView.prototype._initSelection = function(windowOverlays) {
         this._anyButtonPressEventId = global.stage.connect('button-press-event', Lang.bind(this, this._endSelectionForListener));
         this._anyMotionEventId = global.stage.connect('motion-event', Lang.bind(this, this._endSelectionForListener));
-        this._lightbox = new Lightbox.Lightbox(Main.uiGroup, {fadeTime: 0.1});
+        this._lightbox = new Lightbox.Lightbox(Main.uiGroup, {});
         this._lightbox.show();
         let focus = global.screen.get_display().focus_window;
-        for (i in windowOverlays) {
+        for (var i in windowOverlays) {
             if (windowOverlays[i].getMetaWindow() == focus) {
                 this._arrowKeyIndex = i;
             }
@@ -313,7 +310,7 @@ function enable() {
      */
     WorkspacesView.WorkspacesView.prototype.getWindowOverlays = function() {
         let windowOverlays = this.getActiveWorkspace().getWindowOverlays();
-        for (i in this._extraWorkspaces) {
+        for (var i in this._extraWorkspaces) {
             let extraWindowOverlays = this._extraWorkspaces[i].getWindowOverlays().all();
             for (j in extraWindowOverlays) {
                 windowOverlays.push(extraWindowOverlays[j]);
