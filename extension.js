@@ -40,7 +40,7 @@ function enable() {
         let activeIndex = global.screen.get_active_workspace_index();
         let nextIndex = activeIndex + offset;
         if (nextIndex >= 0 && nextIndex < global.screen.get_n_workspaces()) {
-        	let nextWorkspace = global.screen.get_workspace_by_index(nextIndex);
+            let nextWorkspace = global.screen.get_workspace_by_index(nextIndex);
             nextWorkspace.activate(true);
         }
     };
@@ -257,7 +257,7 @@ function enable() {
     WorkspacesView.WorkspacesView.prototype._initSelection = function(windowOverlays) {
         this._anyButtonPressEventId = global.stage.connect('button-press-event', Lang.bind(this, this._endSelectionForListener));
         this._anyMotionEventId = global.stage.connect('motion-event', Lang.bind(this, this._endSelectionForListener));
-        this._lightbox = new Lightbox.Lightbox(Main.uiGroup, {});
+        this._lightbox = new Lightbox.Lightbox(Main.layoutManager.overviewGroup, {});
         this._lightbox.show();
         let focus = global.screen.get_display().focus_window;
         for (var i in windowOverlays) {
@@ -385,7 +385,7 @@ function enable() {
     Workspace.WindowClone.prototype.select = function(lightbox) {
         // Store the original parent and highlight the window.
         this._origParent = this.actor.get_parent();
-        this.actor.reparent(Main.uiGroup);
+        this.actor.reparent(Main.layoutManager.overviewGroup);
         this.actor.raise_top();
         lightbox.highlight(this.actor);
         // Define the available area.
@@ -436,18 +436,13 @@ function enable() {
     }
     
     /*
-     * Undoes the adjustments done by WindowClone.select.
+     * Reverts the adjustments done by WindowClone.select.
      * @param resetGeometry: Flag which indicates if the geometry 
      * should be reset.
      */
     Workspace.WindowClone.prototype.unselect = function(resetGeometry) {
         Tweener.removeTweens(this.actor);
         this.actor.reparent(this._origParent);
-        if (this._stackAbove == null) {
-            this.actor.lower_bottom();
-        } else if (this._stackAbove.get_parent()) {
-            this.actor.raise(this._stackAbove);
-        }
         if (resetGeometry) {
             this.actor.x = this.storedGeometry.x; 
             this.actor.y = this.storedGeometry.y;
