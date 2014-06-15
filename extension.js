@@ -30,24 +30,19 @@ function injectToFunction(parent, name, func) {
     };
 }
 
-function init() {
-    
-}
-
 function enable() {
     
     /*
-     * Switches the active workspace. Contribution by Tim Cuthbertson.
+     * Switches the active workspace when PG_UP/PG_DOWN keys are pressed.
      * @param offset: workspace index offset.
      */
     function switchWorkspace(offset) {
         let activeIndex = global.screen.get_active_workspace_index();
         let nextIndex = activeIndex + offset;
-        if(nextIndex < 0 || nextIndex >= global.screen.get_n_workspaces()) {
-            return;
+        if (nextIndex >= 0 && nextIndex < global.screen.get_n_workspaces()) {
+        	let nextWorkspace = global.screen.get_workspace_by_index(nextIndex);
+            nextWorkspace.activate(true);
         }
-        let nextWorkspace = global.screen.get_workspace_by_index(nextIndex);
-        nextWorkspace.activate(true);
     };
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -355,7 +350,7 @@ function enable() {
      * @return: Boolean.
      */
     Workspace.Workspace.prototype.isRepositioning = function() {
-        return this._repositionWindowsId != 0;
+        return this._repositionWindowsId > 0;
     }
     
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////// 
