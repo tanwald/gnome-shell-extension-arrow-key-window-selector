@@ -40,12 +40,12 @@ function enable() {
         let activeIndex = global.screen.get_active_workspace_index();
         let nextIndex = activeIndex;
         if (key == Clutter.Page_Down) {
-        	nextIndex += 1;
+            nextIndex += 1;
         } else if (key == Clutter.Page_Up) {
-        	nextIndex -= 1;
+            nextIndex -= 1;
         // first workspace.
         } else if (key == Clutter.Home) {
-        	nextIndex = 0;
+            nextIndex = 0;
         // last workspace.
         } else if (key == Clutter.End) {
             nextIndex = global.screen.get_n_workspaces() - 1;
@@ -64,27 +64,27 @@ function enable() {
      * listener.
      */
     injectToFunction(
-		WorkspacesView.WorkspacesView.prototype, 
-		'_init', 
-		function(width, height, x, y, workspaces) {
-	        this._anyKeyPressEventId = global.stage.connect(
-        		'key-press-event', 
-        		Lang.bind(this, this._onAnyKeyPress)
-	        );
-	        // Index of the window that is - or is to be - selected.
-	        this._arrowKeyIndex = 0;
-	        // Navigation memory for making every navigation-step reversible. 
-	        // Otherwise you could navigate into one direction
-	        // and the next move into the opposite direction would not bring
-	        // you back to the origin if there was a closer
-	        // window in that direction. As a side effect navigation 
-	        // rules are cached.
-	        this._navMemory = [];
-	        // The currently selected window. Actually it's the window overlay 
-	        // because it contains the most information and has access to other 
-	        // abstractions.
-	        this._selected = null;
-	        this._lightbox = null;
+        WorkspacesView.WorkspacesView.prototype, 
+        '_init', 
+        function(width, height, x, y, workspaces) {
+            this._anyKeyPressEventId = global.stage.connect(
+                'key-press-event', 
+                Lang.bind(this, this._onAnyKeyPress)
+            );
+            // Index of the window that is - or is to be - selected.
+            this._arrowKeyIndex = 0;
+            // Navigation memory for making every navigation-step reversible. 
+            // Otherwise you could navigate into one direction
+            // and the next move into the opposite direction would not bring
+            // you back to the origin if there was a closer
+            // window in that direction. As a side effect navigation 
+            // rules are cached.
+            this._navMemory = [];
+            // The currently selected window. Actually it's the window overlay 
+            // because it contains the most information and has access to other 
+            // abstractions.
+            this._selected = null;
+            this._lightbox = null;
     });
     
     /*
@@ -92,12 +92,12 @@ function enable() {
      * if it was canceled by the super-key.
      */
     injectToFunction(
-		WorkspacesView.WorkspacesView.prototype, 
-		'_onDestroy', 
-		function() {
-	        global.stage.disconnect(this._anyKeyPressEventId);
-	        this._endSelection(false);
-	    }
+        WorkspacesView.WorkspacesView.prototype, 
+        '_onDestroy', 
+        function() {
+            global.stage.disconnect(this._anyKeyPressEventId);
+            this._endSelection(false);
+        }
     );
     
     /*
@@ -111,7 +111,7 @@ function enable() {
     ._onAnyKeyPress = function(actor, event) {
         let key = event.get_key_symbol();
         if (key == Clutter.Up || key == Clutter.Down || 
-        	key == Clutter.Left || key == Clutter.Right) {
+            key == Clutter.Left || key == Clutter.Right) {
             return this._arrowKeyPressed(key);
         } else {
             return this._nonArrowKeyPressed(key, null);
@@ -129,7 +129,7 @@ function enable() {
         // Stop immediately if there are no windows or if they need 
         // repositioning.
         if (windowOverlays.all().length < 1 || 
-        	this.getActiveWorkspace().isRepositioning()) {
+            this.getActiveWorkspace().isRepositioning()) {
             return false;
         // If this method has been called before, we already have a selected 
         // window.
@@ -144,7 +144,7 @@ function enable() {
         }
         // Define the new/initially selected window and highlight it.
         if (this._arrowKeyIndex != currArrowKeyIndex || 
-        	this._selected == null) {
+            this._selected == null) {
             this._selected = windowOverlays.at(this._arrowKeyIndex);
             this._selected.select(this._lightbox); 
         }
@@ -158,12 +158,12 @@ function enable() {
      * @return: Boolean.
      */
     WorkspacesView.WorkspacesView.prototype._nonArrowKeyPressed = function(key) {
-    	// F1 means index of workspace 1 which is at index 0.
+        // F1 means index of workspace 1 which is at index 0.
         let workspaceIndex = key - Clutter.F1;
         // activate when return is pressed.
         if (this._selected && key == Clutter.Return) {
             let metaWindow = this.getWindowOverlays()
-            				 .at(this._arrowKeyIndex).getMetaWindow();
+                             .at(this._arrowKeyIndex).getMetaWindow();
             this._endSelection(false);
             Main.activateWindow(metaWindow, global.get_current_time());
         // close window when del is pressed.
@@ -173,17 +173,17 @@ function enable() {
             this._endSelection(false);
         // move window when F1-F12 is pressed
         } else if(this._selected && workspaceIndex >= 0 && 
-        		  workspaceIndex < global.screen.get_n_workspaces()) {
+                  workspaceIndex < global.screen.get_n_workspaces()) {
             let window = this._selected.getMetaWindow();
             this._endSelection(false);
             window.change_workspace_by_index(
-            	workspaceIndex, 
-            	false, 
-            	global.get_current_time()
+                workspaceIndex, 
+                false, 
+                global.get_current_time()
             );
         } else if (key == Clutter.Page_Down || key == Clutter.Page_Up || 
-        		   key ==Clutter.Home || key ==Clutter.End) {
-        	this._endSelection(true);
+                   key ==Clutter.Home || key ==Clutter.End) {
+            this._endSelection(true);
             switchWorkspace(key);
         } else {
             this._endSelection(true);
@@ -202,17 +202,17 @@ function enable() {
      * a loop is closer in the defined direction than the previous one. 
      */
     WorkspacesView.WorkspacesView.prototype._updateArrowKeyIndexSub = function(
-    		key, 
-    		reverseKey, 
-    		windowOverlays,
-    		conditionCb) {
-    	let currArrowKeyIndex = this._arrowKeyIndex;
-    	if(this._navMemory[this._arrowKeyIndex][key]) {
+            key, 
+            reverseKey, 
+            windowOverlays,
+            conditionCb) {
+        let currArrowKeyIndex = this._arrowKeyIndex;
+        if(this._navMemory[this._arrowKeyIndex][key]) {
             // Retrieve navigation rule.
             this._arrowKeyIndex = this._navMemory[this._arrowKeyIndex][key];
         } else {
             // Find closest window in that direction.
-        	// sw ... selected window.
+            // sw ... selected window.
             // cw ... current window.
             let sw = this._selected.getStoredGeometry();
             // Just in case some user has infinite resolution...
@@ -244,42 +244,42 @@ function enable() {
         // Move up.
         if (key == Clutter.Up) {
             this._updateArrowKeyIndexSub(
-            		key,
-            		Clutter.Down,
-            		windowOverlays,
-            		function(sw, cw, distance, minDistance) {
-            			return cw.y + cw.height < sw.y && distance < minDistance;
-            		}
+                    key,
+                    Clutter.Down,
+                    windowOverlays,
+                    function(sw, cw, distance, minDistance) {
+                        return cw.y + cw.height < sw.y && distance < minDistance;
+                    }
             );           
         // Move down.
         } else if (key == Clutter.Down) {
-        	this._updateArrowKeyIndexSub(
-            		key,
-            		Clutter.Up,
-            		windowOverlays,
-            		function(sw, cw, distance, minDistance) {
-            			return cw.y > sw.y + sw.height && distance < minDistance;
-            		}
+            this._updateArrowKeyIndexSub(
+                    key,
+                    Clutter.Up,
+                    windowOverlays,
+                    function(sw, cw, distance, minDistance) {
+                        return cw.y > sw.y + sw.height && distance < minDistance;
+                    }
             );
         // Move left.
         } else if (key == Clutter.Left) {
-        	this._updateArrowKeyIndexSub(
-            		key,
-            		Clutter.Right,
-            		windowOverlays,
-            		function(sw, cw, distance, minDistance) {
-            			return cw.x + cw.width < sw.x && distance < minDistance;
-            		}
+            this._updateArrowKeyIndexSub(
+                    key,
+                    Clutter.Right,
+                    windowOverlays,
+                    function(sw, cw, distance, minDistance) {
+                        return cw.x + cw.width < sw.x && distance < minDistance;
+                    }
             );
         // Move right.
         } else if (key == Clutter.Right) {
-        	this._updateArrowKeyIndexSub(
-            		key,
-            		Clutter.Left,
-            		windowOverlays,
-            		function(sw, cw, distance, minDistance) {
-            			return cw.x > sw.x + sw.width && distance < minDistance;
-            		}
+            this._updateArrowKeyIndexSub(
+                    key,
+                    Clutter.Left,
+                    windowOverlays,
+                    function(sw, cw, distance, minDistance) {
+                        return cw.x > sw.x + sw.width && distance < minDistance;
+                    }
             );
         }
     }
@@ -307,16 +307,16 @@ function enable() {
     WorkspacesView.WorkspacesView.prototype
     ._initSelection = function(windowOverlays) {
         this._anyButtonPressEventId = global.stage.connect(
-        	'button-press-event', 
-        	Lang.bind(this, this._endSelectionForListener)
+            'button-press-event', 
+            Lang.bind(this, this._endSelectionForListener)
         );
         this._anyMotionEventId = global.stage.connect(
-        	'motion-event', 
-        	Lang.bind(this, this._endSelectionForListener)
+            'motion-event', 
+            Lang.bind(this, this._endSelectionForListener)
         );
         this._lightbox = new Lightbox.Lightbox(
-        	Main.layoutManager.overviewGroup, 
-        	{}
+            Main.layoutManager.overviewGroup, 
+            {}
         );
         this._lightbox.show();
         let focus = global.screen.get_display().focus_window;
@@ -369,7 +369,7 @@ function enable() {
         let windowOverlays = this.getActiveWorkspace().getWindowOverlays();
         for (var i in this._extraWorkspaces) {
             let extraWindowOverlays = this._extraWorkspaces[i]
-            						  .getWindowOverlays().all();
+                                      .getWindowOverlays().all();
             for (j in extraWindowOverlays) {
                 windowOverlays.push(extraWindowOverlays[j]);
             }
@@ -428,30 +428,30 @@ function enable() {
      * you want to start selecting.
      */
     injectToFunction(
-    	Workspace.WindowClone.prototype, 
-    	'_init', 
-    	function(realWindow) {
-	        this._anyKeyPressEventId = global.stage.connect(
-	        	'key-press-event', 
-	        	Lang.bind(this, function() {
-		            if (this._zooming) {
-		                this._zoomEnd();
-		            }
-	        	})
-	        );
-	        this.storedGeometry = {};
-    	}
+        Workspace.WindowClone.prototype, 
+        '_init', 
+        function(realWindow) {
+            this._anyKeyPressEventId = global.stage.connect(
+                'key-press-event', 
+                Lang.bind(this, function() {
+                    if (this._zooming) {
+                        this._zoomEnd();
+                    }
+                })
+            );
+            this.storedGeometry = {};
+        }
     );
     
     /*
      * Disconnects the key-press-event listener.
      */
     injectToFunction(
-		Workspace.WindowClone.prototype, 
-		'_onDestroy', 
-		function() {
-			global.stage.disconnect(this._anyKeyPressEventId);
-		}
+        Workspace.WindowClone.prototype, 
+        '_onDestroy', 
+        function() {
+            global.stage.disconnect(this._anyKeyPressEventId);
+        }
     );
     
     /*
@@ -498,7 +498,7 @@ function enable() {
         let newY = this.actor.y - deltaHeight / 2;
         // Adjust the new position to the available area.
         if (monitorIndex == Main.layoutManager.primaryIndex){
-        	limitTop += Main.panel.actor.height;
+            limitTop += Main.panel.actor.height;
         }
         if (newX + newWidth > limitRight) newX = limitRight - newWidth;
         if (newX < limitLeft) newX = limitLeft;
