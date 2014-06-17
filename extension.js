@@ -10,6 +10,10 @@ const Tweener = imports.ui.tweener;
 const Workspace = imports.ui.workspace;
 const WorkspacesView = imports.ui.workspacesView;
 
+////////////////////////////////////////////////////////////////////////////////
+//Helper ///////////////////////////////////////////////////////////////////////   
+////////////////////////////////////////////////////////////////////////////////
+
 /*
  * Helper function for injecting code into existing
  * functions. Taken from other extensions.
@@ -30,166 +34,116 @@ function injectToFunction(parent, name, func) {
     };
 }
 
-function enable() {
+/*
+ * Class for enhanced keyboard navigation in overview mode.
+ * @param workspaceView: Reference to the current WorkspaceView. 
+ */
+function KeyCtrl(workspaceView) {
+    
+////////////////////////////////////////////////////////////////////////////////
+// Private /////////////////////////////////////////////////////////////////////   
+////////////////////////////////////////////////////////////////////////////////
+    
+    // Constants.
+    var _INVISIBLE = 255;
+    var _VISIBLE = 0;
+    // Index of the window that is - or is to be - selected.
+    var _arrowKeyIndex = 0;
+    // Navigation memory for making every navigation-step reversible. 
+    // Otherwise you could navigate into one direction
+    // and the next move into the opposite direction would not bring
+    // you back to the origin if there was a closer
+    // window in that direction. As a side effect navigation 
+    // rules are cached.
+    var _navMemory = [];
+    // The currently selected window. Actually it's the window overlay 
+    // because it contains the most information and has access to other 
+    // abstractions.
+    var _selected = null;
+    var _workspaceView = workspaceView;
+    var _windowOverlays = [];
+    var _lightbox = null;
+    var _selecting = false;
+    // Declaration of listener-IDs.
+    var _buttonPressEventId = -1;
+    var _motionEventId = -1;
     
     /*
-     * Switches the active workspace when defined keys are pressed.
-     * @param key: switch-defining keyboard key.
+     * Initialization for members.
      */
-    function switchWorkspace(key) {
-        let activeIndex = global.screen.get_active_workspace_index();
-        let nextIndex = activeIndex;
-        if (key == Clutter.Page_Down) {
-            nextIndex += 1;
-        } else if (key == Clutter.Page_Up) {
-            nextIndex -= 1;
-        // first workspace.
-        } else if (key == Clutter.Home) {
-            nextIndex = 0;
-        // last workspace.
-        } else if (key == Clutter.End) {
-            nextIndex = global.screen.get_n_workspaces() - 1;
-        }
-        if (nextIndex >= 0 && nextIndex < global.screen.get_n_workspaces()) {
-            global.screen.get_workspace_by_index(nextIndex).activate(true);
+    var _init = function() {
+        _windowOverlays = _workspaceView.getWindowOverlays();
+        let focus = global.screen.get_display().focus_window;
+        for (var i in _windowOverlays) {
+            // Find window which has focus.
+            if (_windowOverlays[i].getMetaWindow() == focus) {
+                _arrowKeyIndex = i;
+                _selected = _windowOverlays[i];
+                _selected.border.opacity = _VISIBLE;
+                log(_selected);
+            }
+            // Store initial geometry.
+            _windowOverlays[i].getWindowClone().createGeometrySnapshot();
+            // Initialize a navigation memory for each window overlay.
+            _navMemory[i] = {};
         }
     };
-
-////////////////////////////////////////////////////////////////////////////////
-// WorkspaceView ///////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
+    _init();
     
     /*
-     * Introduces five additional members and registers a 'key-press-event' 
-     * listener.
-     */
-    injectToFunction(
-        WorkspacesView.WorkspacesView.prototype, 
-        '_init', 
-        function(width, height, x, y, workspaces) {
-            this._anyKeyPressEventId = global.stage.connect(
-                'key-press-event', 
-                Lang.bind(this, this._onAnyKeyPress)
-            );
-            // Index of the window that is - or is to be - selected.
-            this._arrowKeyIndex = 0;
-            // Navigation memory for making every navigation-step reversible. 
-            // Otherwise you could navigate into one direction
-            // and the next move into the opposite direction would not bring
-            // you back to the origin if there was a closer
-            // window in that direction. As a side effect navigation 
-            // rules are cached.
-            this._navMemory = [];
-            // The currently selected window. Actually it's the window overlay 
-            // because it contains the most information and has access to other 
-            // abstractions.
-            this._selected = null;
-            this._lightbox = null;
-    });
-    
-    /*
-     * Disconnects the 'key-press-event' listener and ends the selection process
-     * if it was canceled by the super-key.
-     */
-    injectToFunction(
-        WorkspacesView.WorkspacesView.prototype, 
-        '_onDestroy', 
-        function() {
-            global.stage.disconnect(this._anyKeyPressEventId);
-            this._endSelection(false);
-        }
-    );
-    
-    /*
-     * Callback function that is triggered by 'key-press-events' and delegates 
-     * to the according subroutines.
-     * @param actor: Actor which emits the event.
-     * @param event: The event object. 
-     * @return: Boolean.
-     */
-    WorkspacesView.WorkspacesView.prototype
-    ._onAnyKeyPress = function(actor, event) {
-        let key = event.get_key_symbol();
-        if (key == Clutter.Up || key == Clutter.Down || 
-            key == Clutter.Left || key == Clutter.Right) {
-            return this._arrowKeyPressed(key);
-        } else {
-            return this._nonArrowKeyPressed(key, null);
-        }
-    }
-    
-    /*
-     * Entry point for the selection process by arrow keys.
-     * @param key: Pressed key.
-     * @return: Boolean.
-     */
-    WorkspacesView.WorkspacesView.prototype._arrowKeyPressed = function(key) {
-        let windowOverlays = this.getWindowOverlays();
-        let currArrowKeyIndex = this._arrowKeyIndex;
-        // Stop immediately if there are no windows or if they need 
-        // repositioning.
-        if (windowOverlays.all().length < 1 || 
-            this.getActiveWorkspace().isRepositioning()) {
-            return false;
-        // If this method has been called before, we already have a selected 
-        // window.
-        } else if (this._selected) {
-            this._updateArrowKeyIndex(key, windowOverlays.all());
-            if (this._arrowKeyIndex != currArrowKeyIndex) {
-                this._selected.unselect(true);
-            }
-        // Otherwise we have to initialize the selection process.
-        } else {
-            this._initSelection(windowOverlays.all());
-        }
-        // Define the new/initially selected window and highlight it.
-        if (this._arrowKeyIndex != currArrowKeyIndex || 
-            this._selected == null) {
-            this._selected = windowOverlays.at(this._arrowKeyIndex);
-            this._selected.select(this._lightbox); 
-        }
-        return true;
-    }
-    
-    /*
-     * Activates/closes the currently selected window and/or ends the 
+     * Tidy up all actors and adjustments that were introduced during the
      * selection process.
-     * @param key: Pressed key.
-     * @return: Boolean.
+     * @param resetGeometry: Flag which indicates if the geometry of the 
+     * selected window should be reset.
      */
-    WorkspacesView.WorkspacesView.prototype._nonArrowKeyPressed = function(key) {
-        // F1 means index of workspace 1 which is at index 0.
-        let workspaceIndex = key - Clutter.F1;
-        // activate when return is pressed.
-        if (this._selected && key == Clutter.Return) {
-            let metaWindow = this.getWindowOverlays()
-                             .at(this._arrowKeyIndex).getMetaWindow();
-            this._endSelection(false);
-            Main.activateWindow(metaWindow, global.get_current_time());
-        // close window when del is pressed.
-        } else if (this._selected && key == Clutter.Delete) {
-            let windowOverlay = this.getWindowOverlays().at(this._arrowKeyIndex);
-            windowOverlay.closeWindow();
-            this._endSelection(false);
-        // move window when F1-F12 is pressed
-        } else if(this._selected && workspaceIndex >= 0 && 
-                  workspaceIndex < global.screen.get_n_workspaces()) {
-            let window = this._selected.getMetaWindow();
-            this._endSelection(false);
-            window.change_workspace_by_index(
-                workspaceIndex, 
-                false, 
-                global.get_current_time()
-            );
-        } else if (key == Clutter.Page_Down || key == Clutter.Page_Up || 
-                   key ==Clutter.Home || key ==Clutter.End) {
-            this._endSelection(true);
-            switchWorkspace(key);
-        } else {
-            this._endSelection(true);
+    var _endSelection = function(resetGeometry) {
+        if (_selecting) {
+            global.stage.disconnect(_buttonPressEventId);
+            global.stage.disconnect(_motionEventId);
+            _arrowKeyIndex = 0;
+            _navMemory = [];
+            _selected.unselect(resetGeometry);
+            _selected = null;
+            _windowOverlays = [];
+            _lightbox.hide();
+            _lightbox.destroy();
+            _lightbox = null;
+            _selecting = false;
         }
-        return false;
-    }
+    };
+    
+    /*
+     * TODO
+     */
+    var _initSelection = function() {
+        _selected.border.opacity = _INVISIBLE;
+        _lightbox = new Lightbox.Lightbox(Main.layoutManager.overviewGroup);
+        _lightbox.show();
+        _buttonPressEventId = global.stage.connect(
+            'button-press-event', 
+            function() {
+                _endSelection(true);
+            }
+        );
+        _motionEventId = global.stage.connect(
+            'motion-event', 
+            function() {
+                _endSelection(true);
+            }
+        );
+    };
+    
+    
+    /*
+     * Calculates the Manhattan-Distance of two windows in overview mode. 
+     * @param sw: Selected window.
+     * @param cw: Currently evaluated window.
+     * @return: Number
+     */
+    var _calcDistance = function(sw, cw) {
+        return Math.abs(sw.center_x - cw.center_x) + 
+               Math.abs(sw.center_y - cw.center_y);
+    };
     
     /*
      * Subroutine for WorkspaceView._updateArrowKeyIndex. It finds the closest
@@ -197,40 +151,35 @@ function enable() {
      * positioning-strategies.
      * @param key: Pressed key.
      * @param reverseKey: Key for reverse navigation.
-     * @param windowOverlays: [windowOverlays]
      * @param conditionCb: Callback which decides whether the current window in
      * a loop is closer in the defined direction than the previous one. 
      */
-    WorkspacesView.WorkspacesView.prototype._updateArrowKeyIndexSub = function(
-            key, 
-            reverseKey, 
-            windowOverlays,
-            conditionCb) {
-        let currArrowKeyIndex = this._arrowKeyIndex;
-        if(this._navMemory[this._arrowKeyIndex][key]) {
+    var _updateArrowKeyIndexSub = function(key,reverseKey, conditionCb) {
+        let currArrowKeyIndex = _arrowKeyIndex;
+        if(_navMemory[_arrowKeyIndex][key]) {
             // Retrieve navigation rule.
-            this._arrowKeyIndex = this._navMemory[this._arrowKeyIndex][key];
+            _arrowKeyIndex = _navMemory[_arrowKeyIndex][key];
         } else {
             // Find closest window in that direction.
             // sw ... selected window.
             // cw ... current window.
-            let sw = this._selected.getStoredGeometry();
+            let sw = _selected.getStoredGeometry();
             // Just in case some user has infinite resolution...
             let minDistance = Number.POSITIVE_INFINITY;
-            for (var i in windowOverlays) {
-                let cw = windowOverlays[i].getStoredGeometry();
-                let distance = this._calcDistance(sw, cw);
+            for (var i in _windowOverlays) {
+                let cw = _windowOverlays[i].getStoredGeometry();
+                let distance = _calcDistance(sw, cw);
                 if (conditionCb(sw, cw, distance, minDistance)) {
-                    this._arrowKeyIndex = i;
+                    _arrowKeyIndex = i;
                     minDistance = distance;
                 }
             } 
         }
         // Store reverse navigation rule.
-        if (this._arrowKeyIndex != currArrowKeyIndex) {
-            this._navMemory[this._arrowKeyIndex][reverseKey] = currArrowKeyIndex;
+        if (_arrowKeyIndex != currArrowKeyIndex) {
+            _navMemory[_arrowKeyIndex][reverseKey] = currArrowKeyIndex;
         }
-    }
+    };
     
     /*
      * Contains all the logic for selecting a new window based on arrow key 
@@ -239,176 +188,235 @@ function enable() {
      * @param windowOverlays: Window overlays of the active workspace and extra 
      * workspaces.
      */
-    WorkspacesView.WorkspacesView.prototype
-    ._updateArrowKeyIndex = function(key, windowOverlays) {
+    var _updateArrowKeyIndex = function(key) {
         // Move up.
         if (key == Clutter.Up) {
-            this._updateArrowKeyIndexSub(
-                    key,
-                    Clutter.Down,
-                    windowOverlays,
-                    function(sw, cw, distance, minDistance) {
-                        return cw.y + cw.height < sw.y && distance < minDistance;
-                    }
+            _updateArrowKeyIndexSub(
+                key,
+                Clutter.Down,
+                function(sw, cw, distance, minDistance) {
+                    return cw.y + cw.height < sw.y && distance < minDistance;
+                }
             );           
         // Move down.
         } else if (key == Clutter.Down) {
-            this._updateArrowKeyIndexSub(
-                    key,
-                    Clutter.Up,
-                    windowOverlays,
-                    function(sw, cw, distance, minDistance) {
-                        return cw.y > sw.y + sw.height && distance < minDistance;
-                    }
+            _updateArrowKeyIndexSub(
+                key,
+                Clutter.Up,
+                function(sw, cw, distance, minDistance) {
+                    return cw.y > sw.y + sw.height && distance < minDistance;
+                }
             );
         // Move left.
         } else if (key == Clutter.Left) {
-            this._updateArrowKeyIndexSub(
-                    key,
-                    Clutter.Right,
-                    windowOverlays,
-                    function(sw, cw, distance, minDistance) {
-                        return cw.x + cw.width < sw.x && distance < minDistance;
-                    }
+            _updateArrowKeyIndexSub(
+                key,
+                Clutter.Right,
+                function(sw, cw, distance, minDistance) {
+                    return cw.x + cw.width < sw.x && distance < minDistance;
+                }
             );
         // Move right.
         } else if (key == Clutter.Right) {
-            this._updateArrowKeyIndexSub(
-                    key,
-                    Clutter.Left,
-                    windowOverlays,
-                    function(sw, cw, distance, minDistance) {
-                        return cw.x > sw.x + sw.width && distance < minDistance;
-                    }
+            _updateArrowKeyIndexSub(
+                key,
+                Clutter.Left,
+                function(sw, cw, distance, minDistance) {
+                    return cw.x > sw.x + sw.width && distance < minDistance;
+                }
             );
         }
-    }
+    };
     
     /*
-     * Calculates the Manhattan-Distance of two windows in overview mode. 
-     * @param sw: Selected window.
-     * @param cw: Currently evaluated window.
-     * @return: Number.
+     * Selects and highlights windows based on arrow key input.
+     * @param key: Pressed arrow key.
      */
-    WorkspacesView.WorkspacesView.prototype._calcDistance = function(sw, cw) {
-        return Math.abs(sw.center_x - cw.center_x) + 
-               Math.abs(sw.center_y - cw.center_y);
-    }
-    
-    /*
-     * Adds a lightbox to the main ui group, sets focus to the active window
-     * and stores the window geometry of clones. Motion- and button-press-event 
-     * listeners assure that the selection process gets terminated if the user 
-     * wants
-     * to do something else.
-     * @param windowOverlays: Window overlays of the active workspace and extra 
-     * workspaces.
-     */
-    WorkspacesView.WorkspacesView.prototype
-    ._initSelection = function(windowOverlays) {
-        this._anyButtonPressEventId = global.stage.connect(
-            'button-press-event', 
-            Lang.bind(this, this._endSelectionForListener)
-        );
-        this._anyMotionEventId = global.stage.connect(
-            'motion-event', 
-            Lang.bind(this, this._endSelectionForListener)
-        );
-        this._lightbox = new Lightbox.Lightbox(
-            Main.layoutManager.overviewGroup, 
-            {}
-        );
-        this._lightbox.show();
-        let focus = global.screen.get_display().focus_window;
-        for (var i in windowOverlays) {
-            if (windowOverlays[i].getMetaWindow() == focus) {
-                this._arrowKeyIndex = i;
+    var _onArrowKeyPress = function(key) {
+        // Stop immediately if there are no windows or if they need 
+        // repositioning.
+        if (_windowOverlays.length > 0 && 
+            !_workspaceView.getActiveWorkspace().isRepositioning()) {
+            if (!_selecting) {
+                _initSelection();
+                _selecting = true;
             }
-            windowOverlays[i].getWindowClone().createGeometrySnapshot();
-            this._navMemory[i] = {};
+            let currArrowKeyIndex = _arrowKeyIndex;
+            // Find the index of the window that is to be selected based 
+            // on the keyboard input. The result is saved in the member
+            // _arrowKeyIndex.
+            _updateArrowKeyIndex(key);
+            // Select and highlight the window if the navigation was valid.
+            if (_arrowKeyIndex != currArrowKeyIndex) {
+                // First unselect the previous selection.
+                _selected.unselect(true);
+                _selected = _windowOverlays[_arrowKeyIndex];
+                _selected.select(_lightbox);
+            }
+        } 
+    };
+    
+    /*
+     * Switches the active workspace when defined keys are pressed.
+     * @param key: switch-defining keyboard key.
+     */
+    var _onPageKeyPress = function(key) {
+        let activeIndex = global.screen.get_active_workspace_index();
+        if (key == Clutter.Page_Down) {
+            activeIndex += 1;
+        } else if (key == Clutter.Page_Up) {
+            activeIndex -= 1;
+        // First workspace.
+        } else if (key == Clutter.Home) {
+            activeIndex = 0;
+        // Last workspace.
+        } else if (key == Clutter.End) {
+            activeIndex = global.screen.get_n_workspaces() - 1;
         }
-    }
-    
-    /*
-     * Tidy up all actors and adjustments that were introduced during the
-     * selection process.
-     * @param resetGeometry: Flag which indicates if the geometry of the 
-     * selected window should be reset.
-     */
-    WorkspacesView.WorkspacesView.prototype
-    ._endSelection = function(resetGeometry) {
-        // As this method is also called each time the WorkpaceView is destroyed,
-        // we have to check if a window was selected.
-        if (this._selected && typeof this._selected != 'undefined') {
-            global.stage.disconnect(this._anyButtonPressEventId);
-            global.stage.disconnect(this._anyMotionEventId);
-            this._selected.unselect(resetGeometry);
-            this._selected = null;
-            this._lightbox.hide();
-            this._lightbox.destroy();
-            this._lightbox = null;
-            this._arrowKeyIndex = 0;
-            this._navMemory = [];
+        // End selection before WorkspaceView gets destroyed.
+        _endSelection(false);
+        if (activeIndex >= 0 && activeIndex < global.screen.get_n_workspaces()) {
+            global.screen.get_workspace_by_index(activeIndex).activate(true);
         }
-    }
+    };
     
     /*
-     * See WorkspacesView._endSelection. Always resets geometry.
+     * Moves the selected window to the workspace with the number of the
+     * function key i.e. F1 -> workspace 1.
+     * @param key: function key identifier.
      */
-    WorkspacesView.WorkspacesView.prototype
-    ._endSelectionForListener = function() {
-        this._endSelection(true);
-    }
+    var _onFunctionKeyPress = function(key) {
+        // F1 means workspace 1 which is at index 0.
+        let workspaceIndex = key - Clutter.F1;
+        if (workspaceIndex < global.screen.get_n_workspaces()) {
+            let window = _selected.getMetaWindow();
+            window.change_workspace_by_index(
+                workspaceIndex, 
+                false, 
+                global.get_current_time()
+            ); 
+        }
+    };
     
     /*
-     * Getter for window overlays of the active workspace and surrounding 
-     * extra workspaces on different monitors.
-     * @return: { all(): [ WindowOverlay ], at(index): WindowOverlay }
+     * Closes the currently selected window when the delete key is pressed.
      */
+    var _onDeleteKeyPress = function() {
+        let windowOverlay = _windowOverlays[_arrowKeyIndex];
+        windowOverlay.closeWindow();
+    };
+    
+    /*
+     * Activates the currently selected window when the return key is pressed.
+     */
+    var _onReturnKeyPress = function() {
+        let metaWindow = _windowOverlays[_arrowKeyIndex].getMetaWindow();
+        _endSelection(false);
+        Main.activateWindow(metaWindow, global.get_current_time());
+    };
+    
+    /*
+     * Callback function that is triggered by 'key-press-events' and delegates 
+     * to the according subroutines.
+     * @param actor: Actor which emits the event.
+     * @param event: The event object. 
+     */
+    this.onKeyPress = function(actor, event) {
+        let key = event.get_key_symbol();
+        // Select and highlight windows in overview-mode.
+        if (key == Clutter.Up || key == Clutter.Down || 
+            key == Clutter.Left || key == Clutter.Right) {
+            _onArrowKeyPress(key);
+        // Switch workspace
+        } else if (key == Clutter.Page_Down || key == Clutter.Page_Up || 
+                   key ==Clutter.Home || key ==Clutter.End) {
+            _onPageKeyPress(key);
+         // Move window when F1-F12 is pressed
+        } else if(_selecting && key >= Clutter.F1 && key <= Clutter.F12) {
+            _onFunctionKeyPress(key);
+        // Close window when del is pressed.
+        } else if (_selecting && key == Clutter.Delete) {
+            _onDeleteKeyPress();
+        // Activate the selected window when return is pressed.
+        } else if (_selecting && key == Clutter.Return) {
+            _onReturnKeyPress();
+        }  else {
+            _endSelection(true);
+        }
+    };
+    
+    this._keyPressEventId = global.stage.connect(
+        'key-press-event', 
+        Lang.bind(this, this.onKeyPress)
+    );
+    
+////////////////////////////////////////////////////////////////////////////////
+// Public //////////////////////////////////////////////////////////////////////   
+////////////////////////////////////////////////////////////////////////////////
+    
+    /*
+     * Restores the original state of the Gnome Shell.
+     */
+    this.destroy = function() {
+        global.stage.disconnect(this._keyPressEventId);
+    };
+}
+
+function enable() {
+
+////////////////////////////////////////////////////////////////////////////////
+// WorkspaceView ///////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+    
+    /*
+     * TODO
+     */
+    injectToFunction(
+        WorkspacesView.WorkspacesView.prototype, 
+        '_init', 
+        function() {
+            this._keyCtrl = new KeyCtrl(this);
+        }
+    );
+    
+    /*
+     * TODO
+     */
+    injectToFunction(
+        WorkspacesView.WorkspacesView.prototype, 
+        '_onDestroy', 
+        function() {
+            this._keyCtrl.destroy();
+        }
+    );
+    
+    /*
+    * Getter for window overlays of the active workspace and surrounding
+    * extra workspaces on different monitors.
+    * @return: [ WindowOverlay ]
+    */
     WorkspacesView.WorkspacesView.prototype.getWindowOverlays = function() {
         let windowOverlays = this.getActiveWorkspace().getWindowOverlays();
         for (var i in this._extraWorkspaces) {
-            let extraWindowOverlays = this._extraWorkspaces[i]
-                                      .getWindowOverlays().all();
-            for (j in extraWindowOverlays) {
-                windowOverlays.push(extraWindowOverlays[j]);
-            }
+            windowOverlays.push.apply(
+                windowOverlays,
+                this._extraWorkspaces[i].getWindowOverlays()
+            );
         }
-        return {
-            all: function() {
-                return windowOverlays.all();
-            },
-            at: function(index) {
-                return windowOverlays.at(index);
-            }
-        };
-    }
-
+        return windowOverlays;
+     };
+    
 ////////////////////////////////////////////////////////////////////////////////
 // Workspace ///////////////////////////////////////////////////////////////////   
 ////////////////////////////////////////////////////////////////////////////////
     
     /*
-     * Getter for window overlays of a workspace. After the initial call 
-     * additional window
-     * overlays can be added.
-     * @return: { all(): [ WindowOverlay ], at(index): WindowOverlay, 
-     * push(WindowOverlay): Number }
+     * Getter for window overlays of a workspace. 
+     * @return: [ WindowOverlay ]
      */
     Workspace.Workspace.prototype.getWindowOverlays = function() {
-        let windowOverlays = this._windowOverlays.slice();
-        return {
-            all: function() {
-                return windowOverlays;
-            },
-            at: function(index) {
-                return windowOverlays[index];
-            },
-            push: function(windowOverlay) {
-                return windowOverlays.push(windowOverlay);
-            }
-        };
-    }
+        return this._windowOverlays.slice();
+    };
     
     /*
      * Returns true if the workspace is repositioning its windows.
@@ -416,9 +424,9 @@ function enable() {
      */
     Workspace.Workspace.prototype.isRepositioning = function() {
         return this._repositionWindowsId > 0;
-    }
+    };
     
-//////////////////////////////////////////////////////////////////////////////// 
+////////////////////////////////////////////////////////////////////////////////
 // WindowClone /////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
     
@@ -491,9 +499,9 @@ function enable() {
             scale_y: newScaleY,
             time: 0.2,
             transition: 'easeOutQuad' 
-        });
-    }
-    
+            });
+    };
+        
     /*
      * Reverts the adjustments done by WindowClone.select.
      * @param resetGeometry: Flag which indicates if the geometry 
@@ -531,16 +539,14 @@ function enable() {
 ////////////////////////////////////////////////////////////////////////////////
 // WindowOverlay ///////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
-
-    /*
+         /*
      * Selects the associated window. See WindowClone.select.
      * @param lightbox: A reference to the lightbox introduced by 
-     * WorkspacesView._initSelection.
-     * @param windowCount: Number of windows on the active workspace.
+     * KeyCtrl's _initSelection.
      */
-    Workspace.WindowOverlay.prototype.select = function(lightbox, windowCount) {
+    Workspace.WindowOverlay.prototype.select = function(lightbox) {
         this.hide();
-        this._windowClone.select(lightbox, windowCount);
+        this._windowClone.select(lightbox);
     }
     
     /*
@@ -557,7 +563,7 @@ function enable() {
      * Closes the associated window.
      */
     Workspace.WindowOverlay.prototype.closeWindow = function() {
-        this._closeWindow(null);
+        this._closeWindow();
     }
     
     /*
@@ -586,9 +592,8 @@ function enable() {
     
     log('Arrow Key Window Selector enabled');
 }
-
-
+    
+    
 function disable() {
     log('Arrow Key Window Selector disabled');
 }
-
