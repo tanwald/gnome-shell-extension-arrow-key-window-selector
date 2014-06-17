@@ -423,34 +423,13 @@ function enable() {
 ////////////////////////////////////////////////////////////////////////////////
     
     /*
-     * Introduces a dictionary for window geometry and registers a 
-     * key-press-event listener for terminating the scroll-zooming process when 
-     * you want to start selecting.
+     * Introduces a dictionary for window geometry.
      */
     injectToFunction(
         Workspace.WindowClone.prototype, 
         '_init', 
         function(realWindow) {
-            this._anyKeyPressEventId = global.stage.connect(
-                'key-press-event', 
-                Lang.bind(this, function() {
-                    if (this._zooming) {
-                        this._zoomEnd();
-                    }
-                })
-            );
             this.storedGeometry = {};
-        }
-    );
-    
-    /*
-     * Disconnects the key-press-event listener.
-     */
-    injectToFunction(
-        Workspace.WindowClone.prototype, 
-        '_onDestroy', 
-        function() {
-            global.stage.disconnect(this._anyKeyPressEventId);
         }
     );
     
