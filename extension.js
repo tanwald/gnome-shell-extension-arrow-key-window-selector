@@ -72,21 +72,23 @@ function KeyCtrl(workspaceView) {
      * Initialization for members.
      */
     var _init = function() {
+        log('init');
         _windowOverlays = _workspaceView.getWindowOverlays();
         let focus = global.screen.get_display().focus_window;
+        log(focus);
         for (var i in _windowOverlays) {
             // Find window which has focus.
             if (_windowOverlays[i].getMetaWindow() == focus) {
                 _arrowKeyIndex = i;
                 _selected = _windowOverlays[i];
                 _selected.border.opacity = _VISIBLE;
-                log(_selected);
             }
             // Store initial geometry.
             _windowOverlays[i].getWindowClone().createGeometrySnapshot();
             // Initialize a navigation memory for each window overlay.
             _navMemory[i] = {};
         }
+        log(_arrowKeyIndex);
     };
     _init();
     
@@ -121,15 +123,15 @@ function KeyCtrl(workspaceView) {
         _lightbox.show();
         _buttonPressEventId = global.stage.connect(
             'button-press-event', 
-            function() {
+            Lang.bind(this, function() {
                 _endSelection(true);
-            }
+            })
         );
         _motionEventId = global.stage.connect(
             'motion-event', 
-            function() {
+            Lang.bind(this, function() {
                 _endSelection(true);
-            }
+            })
         );
     };
     
@@ -274,7 +276,7 @@ function KeyCtrl(workspaceView) {
             activeIndex = global.screen.get_n_workspaces() - 1;
         }
         // End selection before WorkspaceView gets destroyed.
-        _endSelection(false);
+        this._endSelection(false);
         if (activeIndex >= 0 && activeIndex < global.screen.get_n_workspaces()) {
             global.screen.get_workspace_by_index(activeIndex).activate(true);
         }
@@ -311,17 +313,16 @@ function KeyCtrl(workspaceView) {
      */
     var _onReturnKeyPress = function() {
         let metaWindow = _windowOverlays[_arrowKeyIndex].getMetaWindow();
-        _endSelection(false);
+        this._endSelection(false);
         Main.activateWindow(metaWindow, global.get_current_time());
     };
     
     /*
      * Callback function that is triggered by 'key-press-events' and delegates 
      * to the according subroutines.
-     * @param actor: Actor which emits the event.
      * @param event: The event object. 
      */
-    this.onKeyPress = function(actor, event) {
+    this.onKeyPress = function(event) {
         let key = event.get_key_symbol();
         // Select and highlight windows in overview-mode.
         if (key == Clutter.Up || key == Clutter.Down || 
@@ -341,14 +342,9 @@ function KeyCtrl(workspaceView) {
         } else if (_selecting && key == Clutter.Return) {
             _onReturnKeyPress();
         }  else {
-            _endSelection(true);
+            this._endSelection(true);
         }
     };
-    
-    this._keyPressEventId = global.stage.connect(
-        'key-press-event', 
-        Lang.bind(this, this.onKeyPress)
-    );
     
 ////////////////////////////////////////////////////////////////////////////////
 // Public //////////////////////////////////////////////////////////////////////   
@@ -358,7 +354,8 @@ function KeyCtrl(workspaceView) {
      * Restores the original state of the Gnome Shell.
      */
     this.destroy = function() {
-        global.stage.disconnect(this._keyPressEventId);
+        // TODO
+        return true;
     };
 }
 
@@ -376,6 +373,12 @@ function enable() {
         '_init', 
         function() {
             this._keyCtrl = new KeyCtrl(this);
+            this._keyPressEventId = global.stage.connect(
+                'key-press-event', 
+                Lang.bind(this, function(actor, event) {
+                    this._keyCtrl.onKeyPress(event);
+                })
+            );
         }
     );
     
@@ -386,6 +389,7 @@ function enable() {
         WorkspacesView.WorkspacesView.prototype, 
         '_onDestroy', 
         function() {
+            global.stage.disconnect(this._keyPressEventId);
             this._keyCtrl.destroy();
         }
     );
