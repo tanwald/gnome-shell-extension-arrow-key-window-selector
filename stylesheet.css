@@ -1,0 +1,5 @@
+
+.window-clone-border-active {
+    border: 8px solid rgba(255, 255, 255, 0.5);
+    border-radius: 4px;
+}

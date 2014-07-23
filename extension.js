@@ -2,11 +2,13 @@
 
 const Clutter = imports.gi.Clutter;
 const Lang = imports.lang;
+const St = imports.gi.St;
 
 const Lightbox = imports.ui.lightbox;
 const Main = imports.ui.main;
-const Shell = imports.gi.Shell;
+const Overview = imports.ui.overview;
 const Tweener = imports.ui.tweener;
+const ViewSelector = imports.ui.viewSelector;
 const Workspace = imports.ui.workspace;
 const WorkspacesView = imports.ui.workspacesView;
 
@@ -34,11 +36,37 @@ function injectToFunction(parent, name, func) {
     };
 }
 
+function ExtHelper() {
+    var _eventIds = {};
+    
+    this.connect = function(emitter, signal, callback) {
+        var eventId = emitter.connect(signal, callback);
+        _eventIds[eventId] = emitter;
+        return eventId;
+    };
+    
+    this.disconnect = function(eventId) {
+        _eventIds[eventId].disconnect(eventId);
+        delete _eventIds[eventId];
+    };
+    
+    this.disconnectAll = function() {
+        for (var id in _eventIds) {
+            this.disconnect(parseInt(id));
+        }
+    };
+    
+    this.cleanUp = function() {
+        this.diconnectAll();
+    };
+}
+var ext = new ExtHelper();
+
 /*
  * Class for enhanced keyboard navigation in overview mode.
- * @param workspaceView: Reference to the current WorkspaceView. 
+ * @param workspacesView: Reference to the current workspacesView. 
  */
-function KeyCtrl(workspaceView) {
+function KeyCtrl(workspacesView) {
     
 ////////////////////////////////////////////////////////////////////////////////
 // Private /////////////////////////////////////////////////////////////////////   
@@ -53,25 +81,66 @@ function KeyCtrl(workspaceView) {
     // window in that direction. As a side effect navigation 
     // rules are cached.
     var _navMemory = [];
-    var _workspaceView = workspaceView;
-    // window overlays of the current overview.
+    var _navMemoryActive = true;
+    var _workspacesView = workspacesView;
+    // Window overlays of the overview.
     var _windowOverlays = [];
+    // Number of windows of the workspace which is active while
+    // switching to overview mode.
+    var _windowCount = _workspacesView
+                       .getActiveWorkspace()
+                       .getWindowOverlays()
+                       .length;
+    // Number of before mentioned windows which have already arrived
+    // their final position within the overview.
+    var _windowReadyCount = 0;
     var _lightbox = null;
     // The currently selected window. Actually it's the window overlay 
     // because it contains the most information and has access to other 
     // abstractions.
     var _selected = null;
+    var _active = null;
     // Flag to indicate if a window selection took place.
     var _selecting = false;
     // Flag to indicate if the stored state of the overview is up to date.
     var _upToDate = false;
+    var _overviewReady = false;
     
     // Declaration of listener-IDs.
     var _buttonPressEventId = -1;
     var _motionEventId = -1;
+    // Listener which detects when all windows are at their final position 
+    // within the overview and gets the state of the active workspace. 
+    ext.connect(
+        _workspacesView.getActiveWorkspace(),
+        'windows-ready',
+        Lang.bind(this, function() {
+            _windowReadyCount += 1;
+            if (_windowReadyCount == _windowCount) {
+                this.onOverviewReady();
+            }
+        })
+    );
+    // Listener for cleanup before the hiding-animation starts.
+    ext.connect(
+        Main.overview,
+        'hiding-starts',
+        Lang.bind(this, function() {
+            this.onOverviewHiding();
+        })
+    );
+    // Listener for getting the state of the new workspace.
+    ext.connect(
+        global.window_manager,
+        'switch-workspace',
+        Lang.bind(this, function() {
+            this.onOverviewReady();
+        })
+    );
     // Listener for key-press-events. This is where KeyCtrl comes to life.
-    var _keyPressEventId = global.stage.connect(
-        'key-press-event', 
+    ext.connect(
+        global.stage,
+        'key-press-event',
         Lang.bind(this, function(actor, event) {
             this.onKeyPress(event);
         })
@@ -89,7 +158,7 @@ function KeyCtrl(workspaceView) {
     };
     
     /*
-     * Subroutine for WorkspaceView._updateArrowKeyIndex. It finds the closest
+     * Subroutine for workspacesView._updateArrowKeyIndex. It finds the closest
      * window in the given direction and is therefore independent of window-
      * positioning-strategies.
      * @param key: Pressed key.
@@ -99,7 +168,7 @@ function KeyCtrl(workspaceView) {
      */
     var _updateArrowKeyIndexSub = function(key, reverseKey, conditionCb) {
         let currArrowKeyIndex = _arrowKeyIndex;
-        if(_navMemory[_arrowKeyIndex][key]) {
+        if(_navMemoryActive && _navMemory[_arrowKeyIndex][key]) {
             // Retrieve navigation rule.
             _arrowKeyIndex = _navMemory[_arrowKeyIndex][key];
         } else {
@@ -119,7 +188,7 @@ function KeyCtrl(workspaceView) {
             } 
         }
         // Store reverse navigation rule.
-        if (_arrowKeyIndex != currArrowKeyIndex) {
+        if (_navMemoryActive && _arrowKeyIndex != currArrowKeyIndex) {
             _navMemory[_arrowKeyIndex][reverseKey] = currArrowKeyIndex;
         }
     };
@@ -128,8 +197,6 @@ function KeyCtrl(workspaceView) {
      * Contains all the logic for selecting a new window based on arrow key 
      * input.
      * @param key: Pressed key.
-     * @param windowOverlays: Window overlays of the active workspace and extra 
-     * workspaces.
      */
     var _updateArrowKeyIndex = function(key) {
         // Move up.
@@ -174,17 +241,18 @@ function KeyCtrl(workspaceView) {
     /*
      * Tidy up all actors and adjustments that were introduced during the
      * selection process.
-     * @param resetGeometry: Flag which indicates if the geometry of the 
+     * @param resetG: Flag which indicates if the geometry of the 
+     * @param hideB: Flag which indicates if the border of the active window
      * selected window should be reset.
      */
-    var _endSelection = function(resetGeometry) {
+    var _endSelection = function(resetG) {
         if (_selecting) {
+            _selected.unselect(resetG);
             _lightbox.hide();
             _lightbox.destroy();
             _lightbox = null;
-            _selected.unselect(resetGeometry);
-            global.stage.disconnect(_buttonPressEventId);
-            global.stage.disconnect(_motionEventId);
+            ext.disconnect(_buttonPressEventId);
+            ext.disconnect(_motionEventId);
         }
         _arrowKeyIndex = 0;
         _navMemory = [];
@@ -200,20 +268,20 @@ function KeyCtrl(workspaceView) {
     var _startSelection = function() {
         _lightbox = new Lightbox.Lightbox(Main.layoutManager.overviewGroup);
         _lightbox.show();
-        _buttonPressEventId = global.stage.connect(
+        _buttonPressEventId = ext.connect(
+            global.stage,
             'button-press-event', 
             Lang.bind(this, function() {
                 _endSelection(true);
             })
         );
-        _motionEventId = global.stage.connect(
+        _motionEventId = ext.connect(
+            global.stage,
             'motion-event', 
             Lang.bind(this, function() {
                 _endSelection(true);
             })
         );
-        // Highlight the active window defined by _updateOverviewState.
-        _selected.select(_lightbox);
         _selecting = true;
     };
     
@@ -221,7 +289,7 @@ function KeyCtrl(workspaceView) {
      * Selects and highlights windows based on arrow key input.
      * @param key: Pressed arrow key.
      */
-    var _select = function(key) {
+    var _select = function(key, first) {
         let currArrowKeyIndex = _arrowKeyIndex;
         // Find the index of the window that is to be selected based 
         // on the keyboard input. The result is saved in the member
@@ -233,6 +301,8 @@ function KeyCtrl(workspaceView) {
             _selected.unselect(true);
             _selected = _windowOverlays[_arrowKeyIndex];
             _selected.select(_lightbox);
+        } else if (first) {
+            _selected.select(_lightbox);
         }
     }
     
@@ -241,7 +311,7 @@ function KeyCtrl(workspaceView) {
      * selection process.
      */
     var _updateOverviewState = function() {
-        _windowOverlays = _workspaceView.getWindowOverlays();
+        _windowOverlays = _workspacesView.getWindowOverlays();
         let focus = global.screen.get_display().focus_window;
         for (var i in _windowOverlays) {
             // Store initial geometry.
@@ -253,11 +323,25 @@ function KeyCtrl(workspaceView) {
             if (_windowOverlays[i].getMetaWindow() == focus ||
                 i == _windowOverlays.length - 1) {
                 _arrowKeyIndex = i;
-                // Actually >> to be << selected when selection starts.
                 _selected = _windowOverlays[i];
+                _selected.activeBorder.show();
+                _active = _selected;
             }
         }
         _upToDate = true;
+    };
+    
+    /*
+     * Checks if everything is ready for the selection process to start.
+     * @return: boolean
+     */
+    var _canSelect = function() {
+        return _windowOverlays.length > 0 && 
+               _overviewReady &&
+               !_workspacesView.getActiveWorkspace().isRepositioning() &&
+               // No popping windows while on applications-tab or the like.
+               Main.overview.viewSelector.getActivePage() == 
+               ViewSelector.ViewPage.WINDOWS;
     };
     
     /*
@@ -269,15 +353,13 @@ function KeyCtrl(workspaceView) {
         if (!_upToDate) {
             _updateOverviewState();
         }
-        // Stop immediately if there are no windows or if the windows are 
-        // repositioning.
-        if (_windowOverlays.length > 0 && 
-            !_workspaceView.getActiveWorkspace().isRepositioning()) {
-            if (_selecting) {
-                _select(key);
-            } else {
+        if (_canSelect()) {
+            let first = false;
+            if (!_selecting) {
                 _startSelection();
+                first = true;
             }
+            _select(key, first);
         } 
     };
     
@@ -298,7 +380,7 @@ function KeyCtrl(workspaceView) {
         } else if (key == Clutter.End) {
             activeIndex = global.screen.get_n_workspaces() - 1;
         }
-        // End selection before WorkspaceView gets destroyed.
+        // End selection before workspacesView gets destroyed.
         _endSelection(true);
         if (activeIndex >= 0 && activeIndex < global.screen.get_n_workspaces()) {
             global.screen.get_workspace_by_index(activeIndex).activate(true);
@@ -315,22 +397,21 @@ function KeyCtrl(workspaceView) {
         let workspaceIndex = key - Clutter.F1;
         if (_selected && workspaceIndex < global.screen.get_n_workspaces()) {
             let window = _selected.getMetaWindow();
+            _endSelection(false);
             window.change_workspace_by_index(
                 workspaceIndex, 
                 false, 
                 global.get_current_time()
             ); 
         }
-        _endSelection(true);
     };
     
     /*
      * Closes the currently selected window when the delete key is pressed.
      */
     var _onDeleteKeyPress = function() {
-        let windowOverlay = _windowOverlays[_arrowKeyIndex];
-        windowOverlay.closeWindow();
-        _endSelection(true);
+        _windowOverlays[_arrowKeyIndex].closeWindow();
+        _endSelection(false);
     };
     
     /*
@@ -338,13 +419,31 @@ function KeyCtrl(workspaceView) {
      */
     var _onReturnKeyPress = function() {
         let metaWindow = _windowOverlays[_arrowKeyIndex].getMetaWindow();
-        _endSelection(false);
+        if (_selecting) {
+            _endSelection(false); 
+        }
         Main.activateWindow(metaWindow, global.get_current_time());
     };
     
 ////////////////////////////////////////////////////////////////////////////////
 // Public //////////////////////////////////////////////////////////////////////   
 ////////////////////////////////////////////////////////////////////////////////
+    
+    /*
+     * Callback for getting overview-state when all windows are ready.
+     */
+    this.onOverviewReady = function() {
+        _updateOverviewState();
+        _overviewReady = true;
+    };
+    
+    /*
+     * Ends the current selection process when the overview starts hiding.
+     */
+    this.onOverviewHiding = function() {
+        _active.activeBorder.hide();
+        _endSelection(false);
+    }
     
     /*
      * Callback function that is triggered by 'key-press-events' and delegates 
@@ -368,30 +467,41 @@ function KeyCtrl(workspaceView) {
         } else if (_selecting && key == Clutter.Delete) {
             _onDeleteKeyPress();
         // Activate the selected window when return is pressed.
-        } else if (_selecting && key == Clutter.Return) {
+        } else if (key == Clutter.Return) {
             _onReturnKeyPress();
-        } else {
+        } else if (_selecting) {
             _endSelection(true);
-        }
+            _active.activeBorder.show();
+        } 
     };
     
     /*
-     * Restores the original state of the Gnome Shell.
+     * Disconnects all listeners when the WorkspacesView gets destroyed.
      */
-    this.onDestroy = function() {
-        global.stage.disconnect(_keyPressEventId);
-        _endSelection(true);
+    this.destroy = function() {
+        ext.disconnectAll();
     };
 }
 
 function enable() {
 
 ////////////////////////////////////////////////////////////////////////////////
-// WorkspaceView ///////////////////////////////////////////////////////////////
+// Overview ////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+    
+    var overviewHide = Overview.Overview.prototype.hide;
+    
+    Overview.Overview.prototype.hide = function() {
+        this.emit('hiding-starts');
+        overviewHide.apply(this, arguments);
+    }
+    
+////////////////////////////////////////////////////////////////////////////////
+// WorkspacesView //////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
     
     /*
-     * TODO
+     * Here we go...
      */
     injectToFunction(
         WorkspacesView.WorkspacesView.prototype, 
@@ -402,13 +512,13 @@ function enable() {
     );
     
     /*
-     * TODO
+     * Here we leave...
      */
     injectToFunction(
         WorkspacesView.WorkspacesView.prototype, 
         '_onDestroy', 
         function() {
-            this._keyCtrl.onDestroy();
+            this._keyCtrl.destroy();
         }
     );
     
@@ -448,12 +558,21 @@ function enable() {
         return this._repositionWindowsId > 0;
     };
     
+    injectToFunction(
+        Workspace.Workspace.prototype, 
+        '_showWindowOverlay', 
+        function() {
+            this.emit('windows-ready');
+        }
+    );
+    
 ////////////////////////////////////////////////////////////////////////////////
 // WindowClone /////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
     
     /*
-     * Introduces a dictionary for window geometry.
+     * Introduces a dictionary for window geometry and sets _origParent to null
+     * for easier checks if it is set.
      */
     injectToFunction(
         Workspace.WindowClone.prototype, 
@@ -461,6 +580,7 @@ function enable() {
         function(realWindow) {
             this.storedGeometry = {};
             this._origParent = null;
+            this._origSibling = null;
         }
     );
     
@@ -472,8 +592,9 @@ function enable() {
     Workspace.WindowClone.prototype.select = function(lightbox) {
         // Store the original parent and highlight the window.
         this._origParent = this.actor.get_parent();
-        this.actor.reparent(Main.layoutManager.overviewGroup);
+        this._origSibling = this.actor.get_previous_sibling();
         this.actor.raise_top();
+        this.actor.reparent(Main.layoutManager.overviewGroup);
         lightbox.highlight(this.actor);
         // Define the available area.
         let monitorIndex = this.metaWindow.get_monitor();
@@ -526,20 +647,25 @@ function enable() {
         
     /*
      * Reverts the adjustments done by WindowClone.select.
-     * @param resetGeometry: Flag which indicates if the geometry 
+     * @param resetG: Flag which indicates if the geometry 
      * should be reset.
      */
-    Workspace.WindowClone.prototype.unselect = function(resetGeometry) {
-        if (this._origParent != null) {
-            Tweener.removeTweens(this.actor);
-            this.actor.reparent(this._origParent); 
-            if (resetGeometry) {
-                this.actor.x = this.storedGeometry.x; 
-                this.actor.y = this.storedGeometry.y;
-                this.actor.scale_x = this.storedGeometry.scale_x;
-                this.actor.scale_y = this.storedGeometry.scale_y; 
+    Workspace.WindowClone.prototype.unselect = function(resetG) {
+        if (resetG) {
+            this.actor.x = this.storedGeometry.x; 
+            this.actor.y = this.storedGeometry.y;
+            this.actor.scale_x = this.storedGeometry.scale_x;
+            this.actor.scale_y = this.storedGeometry.scale_y; 
+        }
+        if (this._origParent) {
+            this.actor.reparent(this._origParent);
+            if (this._origSibling) {
+                this.actor.raise(this._origSibling);
+            } else {
+                this.actor.lower_bottom();
             }
-        } 
+            Tweener.removeTweens(this.actor);
+        }
     }
     
     /*
@@ -563,24 +689,82 @@ function enable() {
 ////////////////////////////////////////////////////////////////////////////////
 // WindowOverlay ///////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
-         /*
+    
+    injectToFunction(
+        Workspace.WindowOverlay.prototype, 
+        '_init', 
+        function(windowClone, parentActor) {
+            this.activeBorder = new St.Bin(
+                { style_class: 'window-clone-border-active' }
+            );
+            this.activeBorder.hide();
+            parentActor.add_actor(this.activeBorder);
+            this.activeBorder.lower_bottom();
+        }
+    );
+    
+    injectToFunction(
+        Workspace.WindowOverlay.prototype, 
+        '_onDestroy', 
+        function() {
+            this.activeBorder.destroy();
+        }
+    );
+    
+    injectToFunction(
+        Workspace.WindowOverlay.prototype, 
+        'relayout', 
+        function(animate) {
+            let [
+                cloneX, 
+                cloneY, 
+                cloneWidth, 
+                cloneHeight
+            ] = this._windowClone.slot;
+            let activeBorder = this.activeBorder;
+            let borderNode = activeBorder.get_theme_node();
+            let activeBorderSize = borderNode.get_border_width(St.Side.TOP);
+            let borderX = cloneX - activeBorderSize;
+            let borderY = cloneY - activeBorderSize;
+            let borderWidth = cloneWidth + 2 * activeBorderSize;
+            let borderHeight = cloneHeight + 2 * activeBorderSize;
+            Tweener.removeTweens(activeBorder);
+            if (animate) {
+                this._animateOverlayActor(
+                    activeBorder, 
+                    borderX, 
+                    borderY,
+                    borderWidth, 
+                    borderHeight
+                );
+            } else {
+                activeBorder.set_position(borderX, borderY);
+                activeBorder.set_size(borderWidth, borderHeight);
+            }
+        }
+    );
+    
+    /*
      * Selects the associated window. See WindowClone.select.
      * @param lightbox: A reference to the lightbox introduced by 
      * KeyCtrl's _startSelection.
      */
     Workspace.WindowOverlay.prototype.select = function(lightbox) {
         this.hide();
+        this.activeBorder.hide();
         this._windowClone.select(lightbox);
     }
     
     /*
      * Unselects the associated window. See WindowClone.unselect.
-     * @param resetGeometry: Flag which indicates if the geometry 
-     * should be reset.
+     * @param resetG: Flag which indicates if the geometry should be reset.
+     * @param hideB: Flag which indicates if the boder of the active window
+     * should be hided. 
      */
-    Workspace.WindowOverlay.prototype.unselect = function(resetGeometry) {
+    Workspace.WindowOverlay.prototype.unselect = function(resetG) {
         this.show();
-        this._windowClone.unselect(resetGeometry);
+        this.activeBorder.hide();
+        this._windowClone.unselect(resetG);
     }
     
     /*
@@ -619,5 +803,6 @@ function enable() {
     
     
 function disable() {
+    ext.cleanUp();
     log('Arrow Key Window Selector disabled');
 }
