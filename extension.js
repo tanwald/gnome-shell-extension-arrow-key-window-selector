@@ -17,25 +17,9 @@ const WorkspacesView = imports.ui.workspacesView;
 ////////////////////////////////////////////////////////////////////////////////
 
 /*
- * Helper function for injecting code into existing
- * functions. Taken from other extensions.
- * @param parent: Parent class.
- * @param name: Name of the function.
- * @param func: Function which is to be injected.
- * @return: Return-value of the original or injected function.
+ * Helper-class which applies patches to the GNOME Shell, 
+ * remembers them and can be used to remove them again.
  */
-function injectToFunction(parent, name, func) {
-    let origin = parent[name];
-    parent[name] = function() {
-        let ret;
-        ret = origin.apply(this, arguments);
-        if (ret === undefined) {
-            ret = func.apply(this, arguments);
-        }
-        return ret;
-    };
-}
-
 function ExtHelper() {
     var _eventIds = {};
     
@@ -56,8 +40,46 @@ function ExtHelper() {
         }
     };
     
+    /*
+     * Helper function for injecting code into existing
+     * functions. Taken from other extensions.
+     * @param parent: Parent class.
+     * @param name: Name of the function.
+     * @param injectFunction: Function which is to be injected.
+     * @return: Return-value of the original or injected function.
+     */
+    this.injectBefore = function(parent, name, injectFunction) {
+        let prototype = parent[name];
+        parent[name] = function() {
+            let returnVal;
+            returnVal = injectFunction.apply(this, arguments);
+            returnVal = prototype.apply(this, arguments);
+            return returnVal;
+        };
+    };
+    
+    /*
+     * Helper function for injecting code into existing
+     * functions. Taken from other extensions.
+     * @param parent: Parent class.
+     * @param name: Name of the function.
+     * @param injectFunction: Function which is to be injected.
+     * @return: Return-value of the original or injected function.
+     */
+    this.injectAfter = function(parent, name, injectFunction) {
+        let prototype = parent[name];
+        parent[name] = function() {
+            let returnVal;
+            returnVal = prototype.apply(this, arguments);
+            if (returnVal === undefined) {
+                returnVal = injectFunction.apply(this, arguments);
+            }
+            return returnVal;
+        };
+    };
+    
     this.cleanUp = function() {
-        this.diconnectAll();
+        this.disconnectAll();
     };
 }
 var ext = new ExtHelper();
@@ -304,7 +326,7 @@ function KeyCtrl(workspacesView) {
         } else if (first) {
             _selected.select(_lightbox);
         }
-    }
+    };
     
     /*
      * Get the current state of the overview and prepare members for the 
@@ -443,7 +465,7 @@ function KeyCtrl(workspacesView) {
     this.onOverviewHiding = function() {
         _active.activeBorder.hide();
         _endSelection(false);
-    }
+    };
     
     /*
      * Callback function that is triggered by 'key-press-events' and delegates 
@@ -489,12 +511,13 @@ function enable() {
 // Overview ////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
     
-    var overviewHide = Overview.Overview.prototype.hide;
-    
-    Overview.Overview.prototype.hide = function() {
-        this.emit('hiding-starts');
-        overviewHide.apply(this, arguments);
-    }
+    ext.injectBefore(
+        Overview.Overview.prototype,
+        'hide',
+        function() {
+            this.emit('hiding-starts');
+        }
+    );
     
 ////////////////////////////////////////////////////////////////////////////////
 // WorkspacesView //////////////////////////////////////////////////////////////
@@ -503,7 +526,7 @@ function enable() {
     /*
      * Here we go...
      */
-    injectToFunction(
+    ext.injectAfter(
         WorkspacesView.WorkspacesView.prototype, 
         '_init', 
         function() {
@@ -514,7 +537,7 @@ function enable() {
     /*
      * Here we leave...
      */
-    injectToFunction(
+    ext.injectAfter(
         WorkspacesView.WorkspacesView.prototype, 
         '_onDestroy', 
         function() {
@@ -558,7 +581,7 @@ function enable() {
         return this._repositionWindowsId > 0;
     };
     
-    injectToFunction(
+    ext.injectAfter(
         Workspace.Workspace.prototype, 
         '_showWindowOverlay', 
         function() {
@@ -574,7 +597,7 @@ function enable() {
      * Introduces a dictionary for window geometry and sets _origParent to null
      * for easier checks if it is set.
      */
-    injectToFunction(
+    ext.injectAfter(
         Workspace.WindowClone.prototype, 
         '_init', 
         function(realWindow) {
@@ -666,7 +689,7 @@ function enable() {
             }
             Tweener.removeTweens(this.actor);
         }
-    }
+    };
     
     /*
      * Creates a snapshot of the window geometry.
@@ -684,13 +707,13 @@ function enable() {
             center_x: this.actor.x + width / 2,
             center_y: this.actor.y + height / 2
         };
-    }
+    };
     
 ////////////////////////////////////////////////////////////////////////////////
 // WindowOverlay ///////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
     
-    injectToFunction(
+    ext.injectAfter(
         Workspace.WindowOverlay.prototype, 
         '_init', 
         function(windowClone, parentActor) {
@@ -703,7 +726,7 @@ function enable() {
         }
     );
     
-    injectToFunction(
+    ext.injectAfter(
         Workspace.WindowOverlay.prototype, 
         '_onDestroy', 
         function() {
@@ -711,7 +734,7 @@ function enable() {
         }
     );
     
-    injectToFunction(
+    ext.injectAfter(
         Workspace.WindowOverlay.prototype, 
         'relayout', 
         function(animate) {
@@ -753,7 +776,7 @@ function enable() {
         this.hide();
         this.activeBorder.hide();
         this._windowClone.select(lightbox);
-    }
+    };
     
     /*
      * Unselects the associated window. See WindowClone.unselect.
@@ -765,14 +788,14 @@ function enable() {
         this.show();
         this.activeBorder.hide();
         this._windowClone.unselect(resetG);
-    }
+    };
     
     /*
      * Closes the associated window.
      */
     Workspace.WindowOverlay.prototype.closeWindow = function() {
         this._closeWindow();
-    }
+    };
     
     /*
      * Returns a geometry-info object of the window clone.
@@ -780,7 +803,7 @@ function enable() {
      */
     Workspace.WindowOverlay.prototype.getStoredGeometry = function() {
         return this._windowClone.storedGeometry;
-    }
+    };
     
     /*
      * Getter for the window clone.
@@ -788,7 +811,7 @@ function enable() {
      */
     Workspace.WindowOverlay.prototype.getWindowClone = function() {
         return this._windowClone;
-    }
+    };
     
     /*
      * Getter for the meta window.
@@ -796,7 +819,7 @@ function enable() {
      */
     Workspace.WindowOverlay.prototype.getMetaWindow = function() {
         return this._windowClone.metaWindow;
-    }
+    };
     
     log('Arrow Key Window Selector enabled');
 }
