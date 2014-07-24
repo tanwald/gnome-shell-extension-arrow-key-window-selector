@@ -12,28 +12,40 @@ const ViewSelector = imports.ui.viewSelector;
 const Workspace = imports.ui.workspace;
 const WorkspacesView = imports.ui.workspacesView;
 
-////////////////////////////////////////////////////////////////////////////////
-//Helper ///////////////////////////////////////////////////////////////////////   
-////////////////////////////////////////////////////////////////////////////////
-
 /*
  * Helper-class which applies patches to the GNOME Shell, 
  * remembers them and can be used to remove them again.
  */
 function ExtHelper() {
     var _eventIds = {};
+    var _prototypes = [];
     
+    /*
+     * Connects to signals of ClutterActors and stores the event-IDs, as well
+     * as the emitter for later removal.
+     * @param emitter: The emitter of the signal of interest.
+     * @param signal: The signal of interest.
+     * @param callback: The callback function which is to be called when the 
+     * signal of interest is emitted. 
+     */
     this.connect = function(emitter, signal, callback) {
         var eventId = emitter.connect(signal, callback);
         _eventIds[eventId] = emitter;
         return eventId;
     };
     
+    /*
+     * Disconnects a listener from an emitter.
+     * @param eventId: The registration-ID of the listener.
+     */
     this.disconnect = function(eventId) {
         _eventIds[eventId].disconnect(eventId);
         delete _eventIds[eventId];
     };
     
+    /*
+     * Disconnect all listeners registered by the connect-function.
+     */
     this.disconnectAll = function() {
         for (var id in _eventIds) {
             this.disconnect(parseInt(id));
@@ -42,7 +54,7 @@ function ExtHelper() {
     
     /*
      * Helper function for injecting code into existing
-     * functions. Taken from other extensions.
+     * functions in front of the existing code.
      * @param parent: Parent class.
      * @param name: Name of the function.
      * @param injectFunction: Function which is to be injected.
@@ -50,6 +62,7 @@ function ExtHelper() {
      */
     this.injectBefore = function(parent, name, injectFunction) {
         let prototype = parent[name];
+        _prototypes.push([parent, name, prototype]);
         parent[name] = function() {
             let returnVal;
             returnVal = injectFunction.apply(this, arguments);
@@ -60,7 +73,7 @@ function ExtHelper() {
     
     /*
      * Helper function for injecting code into existing
-     * functions. Taken from other extensions.
+     * functions after the existing code.
      * @param parent: Parent class.
      * @param name: Name of the function.
      * @param injectFunction: Function which is to be injected.
@@ -68,6 +81,7 @@ function ExtHelper() {
      */
     this.injectAfter = function(parent, name, injectFunction) {
         let prototype = parent[name];
+        _prototypes.push([parent, name, prototype]);
         parent[name] = function() {
             let returnVal;
             returnVal = prototype.apply(this, arguments);
@@ -78,8 +92,35 @@ function ExtHelper() {
         };
     };
     
+    /*
+     * Removes an injected function which has been stored by one of the 
+     * injection-functions.
+     * @param parent: The object where an injected function should be removed.
+     * @param name: The name of the injected (or added) function.
+     * @param prototype: The original function. 
+     */
+    this.removeInjection = function(parent, name, prototype) {
+        if (prototype === undefined) {
+            delete parent[name];
+        } else {
+            parent[name] = prototype; 
+        }
+    };
+    
+    /*
+     * Removes all effective patches from the GNOME Shell which were introduced
+     * by the extension. Ineffective orphans will be removed on restart of 
+     * the GNOME Shell.  
+     */
     this.cleanUp = function() {
         this.disconnectAll();
+        for (var i = 0; i < _prototypes.length; i++) {
+            this.removeInjection(
+                _prototypes[i][0], 
+                _prototypes[i][1], 
+                _prototypes[i][2]
+            );
+        }
     };
 }
 var ext = new ExtHelper();
@@ -89,10 +130,6 @@ var ext = new ExtHelper();
  * @param workspacesView: Reference to the current workspacesView. 
  */
 function KeyCtrl(workspacesView) {
-    
-////////////////////////////////////////////////////////////////////////////////
-// Private /////////////////////////////////////////////////////////////////////   
-////////////////////////////////////////////////////////////////////////////////
     
     // Index of the window that is - or is to be - selected.
     var _arrowKeyIndex = 0;
@@ -446,10 +483,6 @@ function KeyCtrl(workspacesView) {
         }
         Main.activateWindow(metaWindow, global.get_current_time());
     };
-    
-////////////////////////////////////////////////////////////////////////////////
-// Public //////////////////////////////////////////////////////////////////////   
-////////////////////////////////////////////////////////////////////////////////
     
     /*
      * Callback for getting overview-state when all windows are ready.
