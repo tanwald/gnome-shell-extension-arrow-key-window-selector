@@ -13,8 +13,9 @@ const Workspace = imports.ui.workspace;
 const WorkspacesView = imports.ui.workspacesView;
 
 /*
- * Helper-class which applies patches to the GNOME Shell, 
- * remembers them and can be used to remove them again.
+ * Helper-class which applies patches to the GNOME Shell, remembers them
+ * and can be used to remove effective patches when the extension gets 
+ * disabled.
  */
 function ExtHelper() {
     var _eventIds = {};
@@ -383,8 +384,8 @@ function KeyCtrl(workspacesView) {
                 i == _windowOverlays.length - 1) {
                 _arrowKeyIndex = i;
                 _selected = _windowOverlays[i];
-                _selected.activeBorder.show();
                 _active = _selected;
+                _active.setFocus(true);
             }
         }
         _upToDate = true;
@@ -496,7 +497,7 @@ function KeyCtrl(workspacesView) {
      * Ends the current selection process when the overview starts hiding.
      */
     this.onOverviewHiding = function() {
-        _active.activeBorder.hide();
+        _active.setFocus(false);
         _endSelection(false);
     };
     
@@ -526,7 +527,7 @@ function KeyCtrl(workspacesView) {
             _onReturnKeyPress();
         } else if (_selecting) {
             _endSelection(true);
-            _active.activeBorder.show();
+            _active.setFocus(true);
         } 
     };
     
@@ -544,6 +545,10 @@ function enable() {
 // Overview ////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
     
+    /*
+     * In contrast to 'hiding', this really indicates the start of the hiding
+     * process of the overview.
+     */
     ext.injectBefore(
         Overview.Overview.prototype,
         'hide',
@@ -614,6 +619,10 @@ function enable() {
         return this._repositionWindowsId > 0;
     };
     
+    /*
+     * Emits a signal when the window-overlay of a window is shown and therefore
+     * indicates the end of its animation.
+     */
     ext.injectAfter(
         Workspace.Workspace.prototype, 
         '_showWindowOverlay', 
@@ -746,56 +755,91 @@ function enable() {
 // WindowOverlay ///////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
     
+    /*
+     * Adds a border - actually two - for indicating the last active window.
+     */
     ext.injectAfter(
         Workspace.WindowOverlay.prototype, 
         '_init', 
         function(windowClone, parentActor) {
-            this.activeBorder = new St.Bin(
-                { style_class: 'window-clone-border-active' }
+            this.activeBorderInner = new St.Bin(
+                { style_class: 'active-window-clone-border-inner' }
             );
-            this.activeBorder.hide();
-            parentActor.add_actor(this.activeBorder);
-            this.activeBorder.lower_bottom();
+            this.activeBorderInner.hide();
+            parentActor.add_actor(this.activeBorderInner);
+            this.activeBorderInner.lower_bottom();
+            this.activeBorderOuter = new St.Bin(
+                { style_class: 'active-window-clone-border-outer' }
+            );
+            this.activeBorderOuter.hide();
+            parentActor.add_actor(this.activeBorderOuter);
+            this.activeBorderOuter.raise(this.activeBorderInner);
         }
     );
     
+    /*
+     * Destroys the previously added border (_init).
+     */
     ext.injectAfter(
         Workspace.WindowOverlay.prototype, 
         '_onDestroy', 
         function() {
-            this.activeBorder.destroy();
+            this.activeBorderInner.destroy();
+            this.activeBorderOuter.destroy();
         }
     );
     
+    /*
+     * Applies the border-style dependent on the size and position of the
+     * window-clone it contains.
+     */
     ext.injectAfter(
         Workspace.WindowOverlay.prototype, 
         'relayout', 
         function(animate) {
-            let [
-                cloneX, 
-                cloneY, 
-                cloneWidth, 
-                cloneHeight
-            ] = this._windowClone.slot;
-            let activeBorder = this.activeBorder;
-            let borderNode = activeBorder.get_theme_node();
+            let [cloneX, 
+                 cloneY, 
+                 cloneWidth, 
+                 cloneHeight] = this._windowClone.slot;
+            let activeBorderInner = this.activeBorderInner;
+            let borderNode = activeBorderInner.get_theme_node();
             let activeBorderSize = borderNode.get_border_width(St.Side.TOP);
             let borderX = cloneX - activeBorderSize;
             let borderY = cloneY - activeBorderSize;
             let borderWidth = cloneWidth + 2 * activeBorderSize;
             let borderHeight = cloneHeight + 2 * activeBorderSize;
-            Tweener.removeTweens(activeBorder);
+            Tweener.removeTweens(activeBorderInner);
             if (animate) {
                 this._animateOverlayActor(
-                    activeBorder, 
+                    activeBorderInner, 
                     borderX, 
                     borderY,
                     borderWidth, 
                     borderHeight
                 );
             } else {
-                activeBorder.set_position(borderX, borderY);
-                activeBorder.set_size(borderWidth, borderHeight);
+                activeBorderInner.set_position(borderX, borderY);
+                activeBorderInner.set_size(borderWidth, borderHeight);
+            }
+            let activeBorderOuter = this.activeBorderOuter;
+            borderNode = activeBorderOuter.get_theme_node();
+            activeBorderSize = borderNode.get_border_width(St.Side.TOP);
+            borderX -= activeBorderSize;
+            borderY -= activeBorderSize;
+            borderWidth += 2 * activeBorderSize;
+            borderHeight += 2 * activeBorderSize;
+            Tweener.removeTweens(activeBorderOuter);
+            if (animate) {
+                this._animateOverlayActor(
+                    activeBorderOuter, 
+                    borderX, 
+                    borderY,
+                    borderWidth, 
+                    borderHeight
+                );
+            } else {
+                activeBorderOuter.set_position(borderX, borderY);
+                activeBorderOuter.set_size(borderWidth, borderHeight);
             }
         }
     );
@@ -807,7 +851,7 @@ function enable() {
      */
     Workspace.WindowOverlay.prototype.select = function(lightbox) {
         this.hide();
-        this.activeBorder.hide();
+        this.setFocus(false);
         this._windowClone.select(lightbox);
     };
     
@@ -819,8 +863,23 @@ function enable() {
      */
     Workspace.WindowOverlay.prototype.unselect = function(resetG) {
         this.show();
-        this.activeBorder.hide();
+        this.setFocus(false);
         this._windowClone.unselect(resetG);
+    };
+    
+    /*
+     * Marks the last active window with a border or removes that border again.
+     * @param set: Flag to indicate whether the window should be marked as 
+     * focused/active or not.
+     */
+    Workspace.WindowOverlay.prototype.setFocus = function(set) {
+        if (set) {
+            this.activeBorderInner.show();
+            this.activeBorderOuter.show();
+        } else {
+            this.activeBorderInner.hide();
+            this.activeBorderOuter.hide();
+        }
     };
     
     /*

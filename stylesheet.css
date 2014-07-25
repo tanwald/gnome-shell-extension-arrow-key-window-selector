@@ -5,7 +5,12 @@
     border-radius: 4px;
 }
 
-.window-clone-border-active {
+.active-window-clone-border-inner {
     border: 8px solid rgba(0, 0, 0, 0.5);
     border-radius: 4px;
+}
+
+.active-window-clone-border-outer {
+    border: 2px solid rgba(255, 255, 255, 0.5)/* rgba(245, 245, 245, 0.2) */;
+    border-radius: 10px;
 }
