@@ -21,6 +21,44 @@ function ExtHelper() {
     var _eventIds = {};
     var _prototypes = [];
     
+    // Constants that affect the behavior of the extension. 
+    this.settings = {
+        ZOOM_FACTOR: 1.3,
+        FOCUS_TIME: 0.2,
+        MEMORY: true
+    };
+    
+    /*
+     * Helper function for injecting code into existing functions. It stores
+     * the original function for being able to undo the modification.
+     * @param parent: Parent class.
+     * @param name: Name of the function.
+     * @param injectFunction: Function which is to be injected.
+     * @param injectBefore: If true, code will be injected before the
+     * existing code is applied.
+     * @return: Return-value of the original or injected function.
+     */
+    var _inject = function(parent, name, injectFunction, injectBefore) {
+        let prototype = parent.prototype[name];
+        _prototypes.push([parent.prototype, name, prototype]);
+        parent.prototype[name] = function() {
+            let newReturnVal;
+            if (injectBefore) {
+                newReturnVal = injectFunction.apply(this, arguments); 
+            }
+            let returnVal = prototype.apply(this, arguments);
+            if (!injectBefore) {
+                newReturnVal = injectFunction.apply(this, arguments); 
+            } 
+            if (newReturnVal !== undefined) {
+                log('Warning: The injection into "' + name + '" of "' + parent +
+                    '" overrides or introduces a return value!');
+                returnVal = newReturnVal;
+            }
+            return returnVal;
+        }; 
+    };
+    
     /*
      * Connects to signals of ClutterActors and stores the event-IDs, as well
      * as the emitter for later removal.
@@ -54,43 +92,27 @@ function ExtHelper() {
     };
     
     /*
-     * Helper function for injecting code into existing
-     * functions in front of the existing code.
+     * Helper function for injecting code into functions before the 
+     * existing code is called.
      * @param parent: Parent class.
      * @param name: Name of the function.
      * @param injectFunction: Function which is to be injected.
      * @return: Return-value of the original or injected function.
      */
     this.injectBefore = function(parent, name, injectFunction) {
-        let prototype = parent[name];
-        _prototypes.push([parent, name, prototype]);
-        parent[name] = function() {
-            let returnVal;
-            returnVal = injectFunction.apply(this, arguments);
-            returnVal = prototype.apply(this, arguments);
-            return returnVal;
-        };
+        _inject(parent, name, injectFunction, true);
     };
     
     /*
-     * Helper function for injecting code into existing
-     * functions after the existing code.
+     * Helper function for injecting code into functions after the 
+     * existing code is called.
      * @param parent: Parent class.
      * @param name: Name of the function.
      * @param injectFunction: Function which is to be injected.
      * @return: Return-value of the original or injected function.
      */
     this.injectAfter = function(parent, name, injectFunction) {
-        let prototype = parent[name];
-        _prototypes.push([parent, name, prototype]);
-        parent[name] = function() {
-            let returnVal;
-            returnVal = prototype.apply(this, arguments);
-            if (returnVal === undefined) {
-                returnVal = injectFunction.apply(this, arguments);
-            }
-            return returnVal;
-        };
+        _inject(parent, name, injectFunction, false);
     };
     
     /*
@@ -129,8 +151,9 @@ var ext = new ExtHelper();
 /*
  * Class for enhanced keyboard navigation in overview mode.
  * @param workspacesView: Reference to the current workspacesView. 
+ * @param settings: Object containing constants.
  */
-function KeyCtrl(workspacesView) {
+function KeyCtrl(workspacesView, settings) {
     
     // Index of the window that is - or is to be - selected.
     var _arrowKeyIndex = 0;
@@ -141,16 +164,10 @@ function KeyCtrl(workspacesView) {
     // window in that direction. As a side effect navigation 
     // rules are cached.
     var _navMemory = [];
-    var _navMemoryActive = true;
+    var _navMemoryActive = settings.MEMORY;
     var _workspacesView = workspacesView;
     // Window overlays of the overview.
     var _windowOverlays = [];
-    // Number of windows of the workspace which is active while
-    // switching to overview mode.
-    var _windowCount = _workspacesView
-                       .getActiveWorkspace()
-                       .getWindowOverlays()
-                       .length;
     // Number of before mentioned windows which have already arrived
     // their final position within the overview.
     var _windowReadyCount = 0;
@@ -165,46 +182,56 @@ function KeyCtrl(workspacesView) {
     // Flag to indicate if the stored state of the overview is up to date.
     var _upToDate = false;
     var _overviewReady = false;
-    
     // Declaration of listener-IDs.
     var _buttonPressEventId = -1;
     var _motionEventId = -1;
-    // Listener which detects when all windows are at their final position 
-    // within the overview and gets the state of the active workspace. 
-    ext.connect(
-        _workspacesView.getActiveWorkspace(),
-        'windows-ready',
-        Lang.bind(this, function() {
-            _windowReadyCount += 1;
-            if (_windowReadyCount == _windowCount) {
+    
+    /*
+     * Registers all listeners at construction time of the KeyCtrl-class.
+     */
+    var _registerListeners = Lang.bind(this, function() {
+        // Listener which detects when all windows are at their final position 
+        // within the overview and gets the state of the active workspace. 
+        ext.connect(
+            _workspacesView.getActiveWorkspace(),
+            'window-ready',
+            Lang.bind(this, function() {
+                _windowReadyCount += 1;
+                if (_windowReadyCount == _workspacesView
+                                         .getActiveWorkspace()
+                                         .getWindowOverlays()
+                                         .length) {
+                    this.onOverviewReady();
+                    _windowReadyCount = 0;
+                }
+            })
+        );
+        // Listener for cleanup before the hiding-animation starts.
+        ext.connect(
+            Main.overview,
+            'hiding-starts',
+            Lang.bind(this, function() {
+                this.onOverviewHiding();
+            })
+        );
+        // Listener for getting the state of the new workspace.
+        ext.connect(
+            global.window_manager,
+            'switch-workspace',
+            Lang.bind(this, function() {
                 this.onOverviewReady();
-            }
-        })
-    );
-    // Listener for cleanup before the hiding-animation starts.
-    ext.connect(
-        Main.overview,
-        'hiding-starts',
-        Lang.bind(this, function() {
-            this.onOverviewHiding();
-        })
-    );
-    // Listener for getting the state of the new workspace.
-    ext.connect(
-        global.window_manager,
-        'switch-workspace',
-        Lang.bind(this, function() {
-            this.onOverviewReady();
-        })
-    );
-    // Listener for key-press-events. This is where KeyCtrl comes to life.
-    ext.connect(
-        global.stage,
-        'key-press-event',
-        Lang.bind(this, function(actor, event) {
-            this.onKeyPress(event);
-        })
-    );
+            })
+        );
+        // Listener for key-press-events. This is where KeyCtrl comes to life.
+        ext.connect(
+            global.stage,
+            'key-press-event',
+            Lang.bind(this, function(actor, event) {
+                this.onKeyPress(event);
+            })
+        ); 
+    });
+    _registerListeners();
     
     /*
      * Calculates the Manhattan-Distance of two windows in overview mode. 
@@ -238,7 +265,7 @@ function KeyCtrl(workspacesView) {
             let sw = _selected.getStoredGeometry();
             // Just in case some user has infinite resolution...
             let minDistance = Number.POSITIVE_INFINITY;
-            for (var i in _windowOverlays) {
+            for (var i = 0; i < _windowOverlays.length; i++) {
                 let cw = _windowOverlays[i].getStoredGeometry();
                 let distance = _calcDistance(sw, cw);
                 if (conditionCb(sw, cw, distance, minDistance)) {
@@ -328,11 +355,13 @@ function KeyCtrl(workspacesView) {
     var _startSelection = function() {
         _lightbox = new Lightbox.Lightbox(Main.layoutManager.overviewGroup);
         _lightbox.show();
+        // Mouse events stop the keyboard selection.
         _buttonPressEventId = ext.connect(
             global.stage,
             'button-press-event', 
             Lang.bind(this, function() {
                 _endSelection(true);
+                _active.setFocus(true);
             })
         );
         _motionEventId = ext.connect(
@@ -340,6 +369,7 @@ function KeyCtrl(workspacesView) {
             'motion-event', 
             Lang.bind(this, function() {
                 _endSelection(true);
+                _active.setFocus(true);
             })
         );
         _selecting = true;
@@ -373,17 +403,19 @@ function KeyCtrl(workspacesView) {
     var _updateOverviewState = function() {
         _windowOverlays = _workspacesView.getWindowOverlays();
         let focus = global.screen.get_display().focus_window;
-        for (var i in _windowOverlays) {
+        for (var i = 0; i < _windowOverlays.length; i++) {
+            let windowOverlay = _windowOverlays[i];
+            windowOverlay.setFocus(false);
             // Store initial geometry.
-            _windowOverlays[i].getWindowClone().createGeometrySnapshot();
+            windowOverlay.getWindowClone().createGeometrySnapshot();
             // Initialize a navigation memory for each window overlay.
             _navMemory[i] = {};
             // Find window which has focus. If no window has focus select 
-            // the last window in the list.
-            if (_windowOverlays[i].getMetaWindow() == focus ||
+            // the last window in the list - for example on GNOME Shell restart.
+            if (windowOverlay.getMetaWindow() == focus ||
                 i == _windowOverlays.length - 1) {
                 _arrowKeyIndex = i;
-                _selected = _windowOverlays[i];
+                _selected = windowOverlay;
                 _active = _selected;
                 _active.setFocus(true);
             }
@@ -442,7 +474,8 @@ function KeyCtrl(workspacesView) {
         }
         // End selection before workspacesView gets destroyed.
         _endSelection(true);
-        if (activeIndex >= 0 && activeIndex < global.screen.get_n_workspaces()) {
+        if (activeIndex < global.screen.get_n_workspaces() && 
+            activeIndex >= 0) {
             global.screen.get_workspace_by_index(activeIndex).activate(true);
         }
     };
@@ -457,6 +490,7 @@ function KeyCtrl(workspacesView) {
         let workspaceIndex = key - Clutter.F1;
         if (_selected && workspaceIndex < global.screen.get_n_workspaces()) {
             let window = _selected.getMetaWindow();
+            _overviewReady = false;
             _endSelection(false);
             window.change_workspace_by_index(
                 workspaceIndex, 
@@ -470,6 +504,7 @@ function KeyCtrl(workspacesView) {
      * Closes the currently selected window when the delete key is pressed.
      */
     var _onDeleteKeyPress = function() {
+        _overviewReady = false;
         _windowOverlays[_arrowKeyIndex].closeWindow();
         _endSelection(false);
     };
@@ -550,7 +585,7 @@ function enable() {
      * process of the overview.
      */
     ext.injectBefore(
-        Overview.Overview.prototype,
+        Overview.Overview,
         'hide',
         function() {
             this.emit('hiding-starts');
@@ -565,10 +600,10 @@ function enable() {
      * Here we go...
      */
     ext.injectAfter(
-        WorkspacesView.WorkspacesView.prototype, 
+        WorkspacesView.WorkspacesView, 
         '_init', 
         function() {
-            this._keyCtrl = new KeyCtrl(this);
+            this._keyCtrl = new KeyCtrl(this, ext.settings);
         }
     );
     
@@ -576,7 +611,7 @@ function enable() {
      * Here we leave...
      */
     ext.injectAfter(
-        WorkspacesView.WorkspacesView.prototype, 
+        WorkspacesView.WorkspacesView, 
         '_onDestroy', 
         function() {
             this._keyCtrl.destroy();
@@ -590,12 +625,8 @@ function enable() {
     */
     WorkspacesView.WorkspacesView.prototype.getWindowOverlays = function() {
         let windowOverlays = this.getActiveWorkspace().getWindowOverlays();
-        for (var i in this._extraWorkspaces) {
-            windowOverlays.push.apply(
-                windowOverlays,
-                this._extraWorkspaces[i].getWindowOverlays()
-            );
-        }
+        // TODO add overlays from ExtraWorkspaces. this._extraWorkspaces
+        // was removed from WorkspacesView.
         return windowOverlays;
      };
     
@@ -624,10 +655,10 @@ function enable() {
      * indicates the end of its animation.
      */
     ext.injectAfter(
-        Workspace.Workspace.prototype, 
+        Workspace.Workspace, 
         '_showWindowOverlay', 
         function() {
-            this.emit('windows-ready');
+            this.emit('window-ready');
         }
     );
     
@@ -640,7 +671,7 @@ function enable() {
      * for easier checks if it is set.
      */
     ext.injectAfter(
-        Workspace.WindowClone.prototype, 
+        Workspace.WindowClone, 
         '_init', 
         function(realWindow) {
             this.storedGeometry = {};
@@ -672,7 +703,7 @@ function enable() {
         let limitWidth = limitRight - limitLeft;
         let limitHeight = limitBottom - limitTop;
         // Calculate the desired new dimension.
-        let factor = 1.3;
+        let factor = ext.settings.ZOOM_FACTOR;
         let newScaleX = this.actor.scale_x * factor;
         let newScaleY = this.actor.scale_y * factor;
         let newWidth = this.actor.width * newScaleX;
@@ -705,7 +736,7 @@ function enable() {
             y: newY,
             scale_x: newScaleX,
             scale_y: newScaleY,
-            time: 0.2,
+            time: ext.settings.FOCUS_TIME,
             transition: 'easeOutQuad' 
          });
     };
@@ -759,7 +790,7 @@ function enable() {
      * Adds a border - actually two - for indicating the last active window.
      */
     ext.injectAfter(
-        Workspace.WindowOverlay.prototype, 
+        Workspace.WindowOverlay, 
         '_init', 
         function(windowClone, parentActor) {
             this.activeBorderInner = new St.Bin(
@@ -781,7 +812,7 @@ function enable() {
      * Destroys the previously added border (_init).
      */
     ext.injectAfter(
-        Workspace.WindowOverlay.prototype, 
+        Workspace.WindowOverlay, 
         '_onDestroy', 
         function() {
             this.activeBorderInner.destroy();
@@ -794,13 +825,14 @@ function enable() {
      * window-clone it contains.
      */
     ext.injectAfter(
-        Workspace.WindowOverlay.prototype, 
+        Workspace.WindowOverlay, 
         'relayout', 
         function(animate) {
             let [cloneX, 
                  cloneY, 
                  cloneWidth, 
                  cloneHeight] = this._windowClone.slot;
+            // Relayout inner border.
             let activeBorderInner = this.activeBorderInner;
             let borderNode = activeBorderInner.get_theme_node();
             let activeBorderSize = borderNode.get_border_width(St.Side.TOP);
@@ -821,6 +853,7 @@ function enable() {
                 activeBorderInner.set_position(borderX, borderY);
                 activeBorderInner.set_size(borderWidth, borderHeight);
             }
+            // Relayout outer border.
             let activeBorderOuter = this.activeBorderOuter;
             borderNode = activeBorderOuter.get_theme_node();
             activeBorderSize = borderNode.get_border_width(St.Side.TOP);
