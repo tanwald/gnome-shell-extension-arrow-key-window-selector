@@ -19,17 +19,23 @@ const WorkspacesView = imports.ui.workspacesView;
  * disabled.
  */
 function ExtHelper() {
-    var _eventIds = {};
-    var _timeoutIds = [];
-    var _prototypes = [];
-    var _idGen = 0;
+    let _eventIds = {};
+    let _timeoutIds = [];
+    let _prototypes = [];
+    let _idGen = 0;
     
     // Constants that affect the behavior of the extension. 
     this.settings = {
+        // Distance which is considered a motion.
         MOTION_THRESHOLD: 5,
+        // Zooming windows stay within the monitor-dimension minus 
+        // the defined padding 
         PADDING: 30,
+        // Maximum factor for zooming windows.
         ZOOM_FACTOR: 1.5,
-        FOCUS_TIME: 0.15,
+        // Duration of the zooming-animation.
+        ZOOM_TIME: 0.15,
+        // If true, navigation steps are always reversible.
         MEMORY: true
     };
     
@@ -44,7 +50,7 @@ function ExtHelper() {
      * existing code is applied.
      * @return: Return-value of the original or injected function.
      */
-    var _inject = function(parent, name, injectFunction, injectBefore) {
+    let _inject = function(parent, name, injectFunction, injectBefore) {
         let prototype = parent.prototype[name];
         _prototypes.push([parent.prototype, name, prototype]);
         parent.prototype[name] = function() {
@@ -88,9 +94,9 @@ function ExtHelper() {
      * Convenience function which is useful when different signals should
      * call the same callback. See connect!
      * @param emitter: The emitter of the signals of interest.
-     * @param signals: The signal of interest.
+     * @param signals: The signals of interest.
      * @param callback: The callback function which is to be called when the 
-     * signals of interest is emitted. 
+     * signals of interest are emitted. 
      * @return: Internal [IDs] of the listeners. 
      * Not the signal-ID for the emitter!
      */
@@ -103,13 +109,19 @@ function ExtHelper() {
     };
     
     /*
-     * Disconnects listeners from their emitters.
-     * @param eventIds: The [event-IDs] of the listeners.
+     * Disconnects listeners from the emitters.
+     * @param eventIds: The internal [event-IDs] of the listeners.
      */
     this.disconnect = function(eventIds) {
         eventIds.forEach(function(id) {
+            // Ids got converted to strings by using them as keys.
             id = parseInt(id);
-            _eventIds[id][0].disconnect(_eventIds[id][1]); 
+            try {
+                _eventIds[id][0].disconnect(_eventIds[id][1]); 
+            } catch(exception) {
+                // The emitter might be dead by now - RIP.
+                log(exception.message); 
+            };
             delete _eventIds[id];
         })
     };
@@ -188,14 +200,14 @@ function ExtHelper() {
     this.addMember = function(parent, name, newMember) {
         if (parent.prototype[name] !== undefined) {
             log('WARNING: Member "' + name + '" of "' + parent +
-            '" already exists and will be overridden!');
+                '" already exists and will be overridden!');
         }
         return _inject(parent, name, newMember, false);
     };
     
     /*
      * Removes an injected function which has been stored by one of the 
-     * injection-functions.
+     * injection-functions and restores the original prototype.
      * @param parent: The object where an injected function should be removed.
      * @param name: The name of the injected (or added) function.
      * @param prototype: The original function. 
@@ -221,7 +233,7 @@ function ExtHelper() {
         }))
     };
 }
-var ext = new ExtHelper();
+let ext = new ExtHelper();
 
 /*
  * Class for enhanced keyboard navigation in overview mode.
@@ -229,96 +241,118 @@ var ext = new ExtHelper();
  * @param settings: Object containing constants.
  */
 function KeyCtrl(workspacesDisplay, settings) {
-    log("INIT");
     // Index of the window that is - or is to be - selected.
-    var _arrowKeyIndex = 0;
-    var _initialIndex = 0;
+    let _arrowKeyIndex = 0;
+    let _initialIndex = 0;
     // Navigation memory for making every navigation-step reversible. 
     // Otherwise you could navigate into one direction
     // and the next move into the opposite direction would not bring
     // you back to the origin if there was a closer
-    // window in that direction. As a side effect navigation 
+    // window in that direction. As a (positive) side effect navigation 
     // rules are cached.
-    var _navMemory = [];
-    var _navMemoryActive = settings.MEMORY;
-    var _workspacesDisplay = workspacesDisplay;
-    var _workspacesViews = workspacesDisplay._workspacesViews;
-    var _viewsAgent = _workspacesViews[0];
+    let _navMemory = [];
+    let _navMemoryActive = settings.MEMORY;
+    let _workspacesDisplay = workspacesDisplay;
+    let _workspacesViews = workspacesDisplay._workspacesViews;
+    let _viewsAgent = _workspacesViews[0];
+    let _extraWorkspaces = _viewsAgent._extraWorkspaces;
     // Window overlays of the overview.
-    var _windowOverlays = [];
+    let _windowOverlays = [];
     // Number of before mentioned windows which have already arrived
     // their final position within the overview.
-    var _windowReadyCount = 0;
-    var _lightbox = null;
+    let _windowReadyCount = 0;
+    let _lightbox = null;
     // The currently selected window. Actually it's the window overlay 
     // because it contains the most information and has access to other 
     // abstractions.
-    var _selected = null;
-    var _active = null;
-    // Flag to indicate if a window selection took place.
-    var _selecting = false;
-    // Flags to indicate events or changes in the overview.
-    var _upToDate = false;
-    var _blocked = false;
-    var _inDrag = false;
-    // Storage for pointer-movement data. Defined in _startSelection.
-    var _deltaMotion;
-    // Declaration of listener-IDs.
-    var _transientEventIds = [];
-    var _selectionEventIds = [];
-    var _windowReadyEventIds = [];
+    let _selected = null;
+    // The active window.
+    let _active = null;
+    // Flag to indicate if a window selection takes place.
+    let _selecting = false;
+    // Flags to indicate events or changes of the overview.
+    let _upToDate = false;
+    let _blocked = false;
+    let _inDrag = false;
+    // Storage for pointer-movement data. Defined in _initSelection.
+    let _deltaMotion;
+    // Declaration of containers for distinct sets of listener-IDs.
+    let _windowReadyEventIds = [];
+    let _transientEventIds = [];
+    let _selectionEventIds = [];
     
     /*
-     * Registers listeners at construction time and whenever the active 
-     * workspace changes.
+     * Registers listeners which will be removed after the overview has
+     * finished its initial "zooming-in".
      */
-    var _registerTransientListeners = Lang.bind(this, function() {
-        log('transient');
-        // Blocks KeyCtrl while windows are - or are about to - change their
-        // positions.
-        _transientEventIds.push(ext.connect(
-            _viewsAgent.getActiveWorkspace(),
-            'window-positioning-init',
-            function() {
-                _blocked = true; 
-            }
-        ));
-        // Detects when the window-animation starts, triggers an update 
-        // after the animation has ended and removes the block of KeyCtrl.
-        _transientEventIds.push(ext.connect(
-            _viewsAgent.getActiveWorkspace(),
-            'window-positioning-start',
-            Lang.bind(this, function() {
-                this.onWindowPositioningStart(); 
-            })
-        )); 
-    });
-    _registerTransientListeners();
-    
-    /*
-     * Registers all listeners at construction time of the KeyCtrl-class.
-     */
-    var _registerPermanentListeners = Lang.bind(this, function() {
-         // Listener for key-press-events. This is where KeyCtrl comes to life.
-        ext.connect(
-            global.stage,
-            'key-press-event',
-            Lang.bind(this, function(actor, event) {
-                log('key');
-                this.onKeyPress(event);
-            })
-        );
-        // Listeners for windows arriving at their final position during
-        // "zooming-in" of the overview.
-        _workspacesViews.forEach(Lang.bind(this, function(view) {
+    let _registerInitListeners = Lang.bind(this, function() {
+        let _connectWindowReady = Lang.bind(this, function(workspace) {
+            // Detects when windows arrive at their final position during
+            // "zooming-in" of the overview.
             _windowReadyEventIds.push(ext.connect(
-                view.getActiveWorkspace(),
+                workspace,
                 'window-ready',
                 Lang.bind(this, function() {
                     this.onWindowReady();
                 })
             ))
+        })
+        _extraWorkspaces.forEach(Lang.bind(this, function(workspace) {
+            _connectWindowReady(workspace);
         }))
+        _workspacesViews.forEach(Lang.bind(this, function(view) {
+            _connectWindowReady(view.getActiveWorkspace());
+        }))
+    });
+    _registerInitListeners();
+    
+    /*
+     * Registers listeners at construction time and whenever the active 
+     * workspace changes.
+     */
+    let _registerTransientListeners = Lang.bind(this, function() {
+        let _connectWindowPositioning = Lang.bind(this, function(workspace) {
+            // Blocks KeyCtrl while windows are - or are about to - change their
+            // positions.
+            _transientEventIds.push(ext.connect(
+                workspace,
+                'window-positioning-init',
+                function() {
+                    _blocked = true; 
+                }
+            ));
+            // Detects when the window-animation starts, triggers an update 
+            // after the animation has ended and removes the block for KeyCtrl.
+            _transientEventIds.push(ext.connect(
+                workspace,
+                'window-positioning-start',
+                Lang.bind(this, function() {
+                    this.onWindowPositioningStart(); 
+                })
+            ));
+        })
+        _extraWorkspaces.forEach(Lang.bind(this, function(workspace) {
+            _connectWindowPositioning(workspace);
+        }))
+        _workspacesViews.forEach(Lang.bind(this, function(view) {
+            _connectWindowPositioning(view.getActiveWorkspace());
+        }))
+    });
+    _registerTransientListeners();
+    
+    /*
+     * Registers listeners at construction time of the KeyCtrl-class. Their
+     * lifespan is identical with the one of KeyCtrl. 
+     */
+    let _registerPermanentListeners = Lang.bind(this, function() {
+         // Listener for key-press-events. This is where KeyCtrl comes to life.
+        ext.connect(
+            global.stage,
+            'key-press-event',
+            Lang.bind(this, function(actor, event) {
+                this.onKeyPress(event);
+            })
+        );
         // Updates the stored overview-state when windows enter or leave the
         // monitor. It is also called when windows are added or removed from
         // a workspace.
@@ -326,9 +360,8 @@ function KeyCtrl(workspacesDisplay, settings) {
             global.screen,
             ['window-entered-monitor', 'window-left-monitor'],
             Lang.bind(this,function() {
-                log('entered or left or removed or added');
                 _upToDate = false;
-                this.updateOverviewState();
+                this.updateOverviewState(false);
             })
         );
         // Blocks KeyCtrl while windows are dragged.
@@ -354,19 +387,10 @@ function KeyCtrl(workspacesDisplay, settings) {
             _viewsAgent,
             'workspace-switched',
             Lang.bind(this, function() {
-                log('workspace switched');
                 ext.disconnect(_transientEventIds);
                 _transientEventIds = [];
                 _registerTransientListeners();
-                this.updateOverviewState();
-            })
-        );
-        // Listener for cleanup before the hiding-animation starts.
-        ext.connect(
-            Main.overview,
-            'hiding-start',
-            Lang.bind(this, function() {
-                this.onOverviewHiding();
+                this.updateOverviewState(true);
             })
         );
     });
@@ -379,7 +403,7 @@ function KeyCtrl(workspacesDisplay, settings) {
      * @param y1, y2: y-coordinates of the two points.
      * @return: Number
      */
-    var _calcManhattanDistance = function(x1, x2, y1, y2) {
+    let _calcManhattanDistance = function(x1, x2, y1, y2) {
         return Math.abs(x1 - x2) + Math.abs(y1 - y2);
     };
     
@@ -389,7 +413,7 @@ function KeyCtrl(workspacesDisplay, settings) {
      * @param cw: Currently evaluated window.
      * @return: Number
      */
-    var _calcWindowDistance = function(sw, cw) {
+    let _calcWindowDistance = function(sw, cw) {
         return _calcManhattanDistance(
                    sw.center_x, cw.center_x, 
                    sw.center_y, cw.center_y
@@ -397,10 +421,11 @@ function KeyCtrl(workspacesDisplay, settings) {
     };
     
     /*
-     * Decides if the movement of the pointer exceeds a certain threshold.
+     * Checks if the movement of the pointer exceeds a certain threshold.
      * Otherwise a slight vibration of the table would stop the selection.
+     * @param event: Event object which holds the current pointer position. 
      */
-    var _isMotion = function(event) {
+    let _isMotion = function(event) {
         let coords = event.get_coords();
         let delta = _calcManhattanDistance(
             _deltaMotion[0], coords[0],
@@ -416,10 +441,10 @@ function KeyCtrl(workspacesDisplay, settings) {
      * positioning-strategies.
      * @param key: Pressed key.
      * @param reverseKey: Key for reverse navigation.
-     * @param conditionCb: Callback which decides whether the current window in
-     * a loop is closer in the defined direction than the previous one. 
+     * @param conditionCb: Callback which decides whether the currently 
+     * tested window is, in the defined direction, closer than the previous one. 
      */
-    var _updateArrowKeyIndexSub = function(key, reverseKey, conditionCb) {
+    let _updateArrowKeyIndexSub = function(key, reverseKey, conditionCb) {
         let currArrowKeyIndex = _arrowKeyIndex;
         if(_navMemoryActive && _navMemory[_arrowKeyIndex][key] !== undefined) {
             // Retrieve navigation rule.
@@ -431,14 +456,14 @@ function KeyCtrl(workspacesDisplay, settings) {
             let sw = _selected.getStoredGeometry();
             // Just in case some user has infinite resolution...
             let minDistance = Number.POSITIVE_INFINITY;
-            for (var i = 0; i < _windowOverlays.length; i++) {
-                let cw = _windowOverlays[i].getStoredGeometry();
+            _windowOverlays.forEach(function(overlay, index) {
+                let cw = overlay.getStoredGeometry();
                 let distance = _calcWindowDistance(sw, cw);
                 if (conditionCb(sw, cw, distance, minDistance)) {
-                    _arrowKeyIndex = i;
+                    _arrowKeyIndex = index;
                     minDistance = distance;
                 }
-            } 
+            })
         }
         // Store reverse navigation rules.
         if (_navMemoryActive && _arrowKeyIndex != currArrowKeyIndex) {
@@ -452,7 +477,7 @@ function KeyCtrl(workspacesDisplay, settings) {
      * input.
      * @param key: Pressed key.
      */
-    var _updateArrowKeyIndex = function(key) {
+    let _updateArrowKeyIndex = function(key) {
         // Move up.
         if (key == Clutter.Up) {
             _updateArrowKeyIndexSub(
@@ -496,10 +521,8 @@ function KeyCtrl(workspacesDisplay, settings) {
      * Get the current state of the overview and prepare members for the 
      * selection process.
      */
-    var _updateOverviewState = function() {
-        log('updated.' + _upToDate);
+    let _updateOverviewState = function() {
         _windowOverlays = _workspacesDisplay.getWindowOverlays(_upToDate);
-        log(_windowOverlays.length);
         _upToDate = true;
         let focus = global.screen.get_display().focus_window;
         let focusFound = false;
@@ -507,9 +530,9 @@ function KeyCtrl(workspacesDisplay, settings) {
             windowOverlay.setFocus(false);
             // Store initial geometry.
             windowOverlay.getWindowClone().createGeometrySnapshot();
-            // Initialize a navigation memory for each window overlay.
+            // Initialize a navigation memory for each WindowOverlay.
             _navMemory[index] = {};
-            // Find window which has focus. If no window has focus select 
+            // Find the focused window. If no window has focus select 
             // the last window in the list - for example on GNOME Shell restart.
             if (windowOverlay.getMetaWindow() == focus ||
                 (!focusFound && index == _windowOverlays.length - 1)) {
@@ -527,9 +550,9 @@ function KeyCtrl(workspacesDisplay, settings) {
      * selection process.
      * @param resetG: Flag which indicates if the geometry of the focused
      * window should be reset.
-     * @param resetKeyCtrl: Resets the stored state of the overview. 
+     * @param resetKeyCtrl: Reset the stored state of the overview! 
      */
-    var _endSelection = function(resetG, resetKeyCtrl) {
+    let _resetSelection = function(resetG, resetKeyCtrl) {
         if (_selecting) {
             _selected.unselect(resetG);
             _lightbox.hide();
@@ -547,7 +570,7 @@ function KeyCtrl(workspacesDisplay, settings) {
             }
             if (_lightbox) {
                 _lightbox.destroy();
-                _lightbox = null
+                _lightbox = null;
             }
             _upToDate = false;
         } else {
@@ -560,21 +583,21 @@ function KeyCtrl(workspacesDisplay, settings) {
     };
     
     /*
-     * Starts the selection process and registers listeners which should
-     * stop the process.
+     * Initializes the selection process and registers listeners which will 
+     * stop it again.
      */
-    var _startSelection = function() {
+    let _initSelection = function() {
+        _initialIndex = _arrowKeyIndex;
         _lightbox = new Lightbox.Lightbox(Main.layoutManager.overviewGroup);
         _lightbox.show();
         _deltaMotion = global.get_pointer();
-        _initialIndex = _arrowKeyIndex;
         _selecting = true;
         // Mouse events stop the keyboard selection.
         _selectionEventIds.push(ext.connect(
             global.stage,
             'button-press-event', 
             Lang.bind(this, function() {
-                _endSelection(true, true);
+                _resetSelection(true, true);
             })
         ));
         _selectionEventIds.push(ext.connect(
@@ -582,7 +605,7 @@ function KeyCtrl(workspacesDisplay, settings) {
             'motion-event', 
             Lang.bind(this, function(actor, event) {
                 if (_isMotion(event)) {
-                    _endSelection(true, false);
+                    _resetSelection(true, false);
                 }
             })
         ));
@@ -594,7 +617,7 @@ function KeyCtrl(workspacesDisplay, settings) {
      * @param first: The first navigation could be in a wrong direction
      * but we still want to highlight the active window.
      */
-    var _select = function(key, first) {
+    let _select = function(key, first) {
         let currArrowKeyIndex = _arrowKeyIndex;
         // Find the index of the window that is to be selected based 
         // on the keyboard input. The result is saved in the member
@@ -602,7 +625,6 @@ function KeyCtrl(workspacesDisplay, settings) {
         _updateArrowKeyIndex(key);
         // Select and highlight the window if the navigation was valid.
         if (_arrowKeyIndex != currArrowKeyIndex) {
-            // First unselect the previous selection.
             _selected.unselect(true);
             _selected = _windowOverlays[_arrowKeyIndex];
             // Highlight.
@@ -616,9 +638,10 @@ function KeyCtrl(workspacesDisplay, settings) {
      * Checks if everything is ready for the selection process to start.
      * @return: boolean
      */
-    var _canSelect = function() {
+    let _canSelect = function() {
         return _windowOverlays.length > 0 && 
                !_blocked && 
+               // Avoids popping windows while navigating the applications page.
                Main.overview.viewSelector.getActivePage() == 
                ViewSelector.ViewPage.WINDOWS;
     };
@@ -628,11 +651,11 @@ function KeyCtrl(workspacesDisplay, settings) {
      * methods.
      * @param key: Pressed arrow key.
      */
-    var _onArrowKeyPress = function(key) {
+    let _onArrowKeyPress = function(key) {
         if (_canSelect()) {
             let first = false;
             if (!_selecting) {
-                _startSelection();
+                _initSelection();
                 first = true;
             }
             _select(key, first);
@@ -643,8 +666,9 @@ function KeyCtrl(workspacesDisplay, settings) {
      * Switches the active workspace when defined keys are pressed.
      * @param key: switch-defining keyboard key.
      */
-    var _onPageKeyPress = function(key) {
+    let _onPageKeyPress = function(key) {
         let activeIndex = global.screen.get_active_workspace_index();
+        let previousIndex = activeIndex;
         if (key == Clutter.Page_Down) {
             activeIndex += 1;
         } else if (key == Clutter.Page_Up) {
@@ -656,9 +680,10 @@ function KeyCtrl(workspacesDisplay, settings) {
         } else if (key == Clutter.End) {
             activeIndex = global.screen.get_n_workspaces() - 1;
         }
-        _endSelection(true, true);
         if (activeIndex < global.screen.get_n_workspaces() && 
-            activeIndex >= 0) {
+            activeIndex >= 0 &&
+            activeIndex != previousIndex) {
+            _resetSelection(true, true);
             global.screen.get_workspace_by_index(activeIndex).activate(true);
         }
     };
@@ -668,7 +693,7 @@ function KeyCtrl(workspacesDisplay, settings) {
      * function key i.e. F1 -> workspace 1.
      * @param key: function key identifier.
      */
-    var _onFunctionKeyPress = function(key) {
+    let _onFunctionKeyPress = function(key) {
         // F1 means workspace 1 which is at index 0.
         let workspaceIndex = key - Clutter.F1;
         if (_selected && workspaceIndex < global.screen.get_n_workspaces()) {
@@ -678,25 +703,25 @@ function KeyCtrl(workspacesDisplay, settings) {
                 false, 
                 global.get_current_time()
             );
-            _endSelection(false, true);
+            _resetSelection(false, true);
         }
     };
     
     /*
      * Closes the currently selected window when the delete key is pressed.
      */
-    var _onDeleteKeyPress = function() {
+    let _onDeleteKeyPress = function() {
         _windowOverlays[_arrowKeyIndex].closeWindow();
-        _endSelection(false, true);
+        _resetSelection(false, true);
     };
     
     /*
      * Activates the currently selected window when the return key is pressed.
      */
-    var _onReturnKeyPress = function() {
+    let _onReturnKeyPress = function() {
         let metaWindow = _windowOverlays[_arrowKeyIndex].getMetaWindow();
         if (_selecting) {
-            _endSelection(false, true); 
+            _resetSelection(false, true); 
         }
         Main.activateWindow(metaWindow, global.get_current_time());
     };
@@ -705,7 +730,7 @@ function KeyCtrl(workspacesDisplay, settings) {
      * Called when the active workspace starts to reposition its windows.
      */
     this.onWindowPositioningStart = function() {
-        // Not on overview start and when windows are dragged.
+        // Not on overview-init and when windows are dragged.
         if (_windowReadyEventIds.length == 0 && !_inDrag) {
             _upToDate = false;
             ext.addTimeout(
@@ -713,7 +738,7 @@ function KeyCtrl(workspacesDisplay, settings) {
                 Overview.ANIMATION_TIME * 1000 * 2,
                 Lang.bind(this, function() {
                     _blocked = false;
-                    this.updateOverviewState();
+                    this.updateOverviewState(false);
                 })
             ); 
         }
@@ -726,19 +751,23 @@ function KeyCtrl(workspacesDisplay, settings) {
     this.onWindowReady = function() {
         _windowReadyCount += 1;
         if (_windowReadyCount == _workspacesDisplay.getWindowCount(_upToDate)) {
-            // Only applied when the overview is initially shown (to be quick).
+            // Only applied when the overview is initialized (to be quick).
             ext.disconnect(_windowReadyEventIds);
             _windowReadyEventIds = [];
-            this.updateOverviewState();
+            this.updateOverviewState(false);
         }
         _upToDate = true;
     };
     
     /*
      * Updates the state of the active workspace.
+     * @param resetSelection: Tells if the selection should be reset before.
      */
-    this.updateOverviewState = function() {
+    this.updateOverviewState = function(resetSelection) {
         if (!_blocked && !_selecting) {
+            if(resetSelection) {
+                _resetSelection(false, true); 
+            }
             _updateOverviewState();
         }
     };
@@ -747,7 +776,7 @@ function KeyCtrl(workspacesDisplay, settings) {
      * Ends the current selection process when the overview starts hiding.
      */
     this.onOverviewHiding = function() {
-        _endSelection(false, true);
+        _resetSelection(false, true);
     };
     
     /*
@@ -757,7 +786,6 @@ function KeyCtrl(workspacesDisplay, settings) {
      */
     this.onKeyPress = function(event) {
         let key = event.get_key_symbol();
-        log(key);
         // Select and highlight windows in overview-mode.
         if (key == Clutter.Up || key == Clutter.Down || 
             key == Clutter.Left || key == Clutter.Right) {
@@ -776,37 +804,22 @@ function KeyCtrl(workspacesDisplay, settings) {
         } else if (key == Clutter.Return) {
             _onReturnKeyPress();
         } else if (_selecting) {
-            _endSelection(true, false);
+            _resetSelection(true, false);
         } 
     };
     
     /*
-     * Disconnects all listeners and removes all timeouts. Thalamus shuts down.
+     * Disconnects all listeners and removes all timeouts. 
+     * Thalamus shuts down...
      */
     this.sleep = function() {
-        _endSelection(false, true);
+        _resetSelection(false, true);
         ext.disconnectAll();
         ext.removeAll();
     };
 }
 
 function enable() {
-
-////////////////////////////////////////////////////////////////////////////////
-// Overview ////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-    
-    /*
-     * In contrast to 'hiding', this really indicates the start of the hiding
-     * process of the overview.
-     */
-    ext.injectBefore(
-        Overview.Overview,
-        'hide',
-        function() {
-            this.emit('hiding-start');
-        }
-    );
     
 ////////////////////////////////////////////////////////////////////////////////
 // WorkspacesDisplay ///////////////////////////////////////////////////////////
@@ -819,7 +832,6 @@ function enable() {
         WorkspacesView.WorkspacesDisplay, 
         'show', 
         function() {
-            log("SHOW");
             // Kind of cache for all selectable windows.
             this._windowOverlaysActive = [];
             this._keyCtrl = new KeyCtrl(this, ext.settings);
@@ -833,14 +845,13 @@ function enable() {
         WorkspacesView.WorkspacesDisplay, 
         'hide', 
         function() {
-            log("HIDE");
             this._windowOverlaysActive = [];
             this._keyCtrl.sleep();
         }
     );
     
     /*
-     * Getter for window overlays of the active workspace and surrounding
+     * Getter for WindowOverlays of the active workspace and surrounding
      * extra workspaces on different monitors.
      * @return: [ WindowOverlay ]
      */
@@ -862,11 +873,11 @@ function enable() {
                  this._windowOverlaysActive = windowOverlays;
              }
              return windowOverlays;
-          }
-      );
+         }
+     );
      
      /*
-      * Returns the number of managed windows of the active workspace. 
+      * Returns the number of managed windows within the active workspace. 
       * @return: Number
       */
      ext.addMember(
@@ -882,17 +893,28 @@ function enable() {
 ////////////////////////////////////////////////////////////////////////////////
     
     /*
-    * Getter for window overlays of the active workspace.
-    * @return: [ WindowOverlay ]
-    */
+     * Getter for window overlays of the active workspace and extra workspaces.
+     * @return: [ WindowOverlay ]
+     */
     ext.addMember(
         WorkspacesView.WorkspacesView,
         'getWindowOverlays',
         function() {
-            return this.getActiveWorkspace().getWindowOverlays();
+            let windowOverlays = this.getActiveWorkspace().getWindowOverlays();
+            this._extraWorkspaces.forEach(function(workspace) {
+                windowOverlays.push.apply(
+                    windowOverlays,
+                    workspace.getWindowOverlays()
+                );
+            })
+            return windowOverlays;
         }
     );
     
+    /*
+     * Injection into the function which is called at the end of the workspace-
+     * switch. As there is no onComplete hook we have to wait a bit.
+     */
     ext.injectAfter(
         WorkspacesView.WorkspacesView, 
         '_updateScrollAdjustment', 
@@ -964,8 +986,7 @@ function enable() {
 ////////////////////////////////////////////////////////////////////////////////
     
     /*
-     * Introduces a dictionary for window geometry and sets _origParent to null
-     * for easier checks if it is set.
+     * Introduces a dictionary for window geometry and sets _origParent to null.
      */
     ext.injectAfter(
         Workspace.WindowClone, 
@@ -980,14 +1001,15 @@ function enable() {
     /*
      * Highlights and zooms the currently selected window.
      * @param lightbox: A reference to the lightbox introduced by 
-     * _startSelection.
+     * _initSelection.
      */
     ext.addMember(
         Workspace.WindowClone,
         'select',
         function(lightbox) {
             let actor = this.actor;
-            // Store the initial geometry of the window.
+            // Store the initial geometry of the window (might has changed
+            // a little bit in the meantime).
             this.createGeometrySnapshot();
             // Store the original parent and highlight the window.
             this._origParent = actor.get_parent();
@@ -1039,7 +1061,7 @@ function enable() {
                 y: newY,
                 scale_x: newScaleX,
                 scale_y: newScaleY,
-                time: ext.settings.FOCUS_TIME,
+                time: ext.settings.ZOOM_TIME,
                 transition: 'easeOutQuad' 
              });
         }
@@ -1074,7 +1096,7 @@ function enable() {
     );
     
     /*
-     * Creates a snapshot of the window geometry.
+     * Creates a snapshot of the current window geometry.
      */
     ext.addMember(
         Workspace.WindowClone,
@@ -1101,7 +1123,7 @@ function enable() {
 ////////////////////////////////////////////////////////////////////////////////
     
     /*
-     * Adds a border - actually two - for indicating the last active window.
+     * Adds a border - actually two - for indicating the active window.
      */
     ext.injectAfter(
         Workspace.WindowOverlay, 
@@ -1162,66 +1184,66 @@ function enable() {
     );
     
     /*
-     * Applies the border-style dependent on the size and position of the
-     * window-clone it contains.
+     * Subroutine of relayout which is called once with the window clone as
+     * reference and another time with the return values of the first call.
+     * @param referenceWin: Reference values from the window that is to 
+     * be framed.
+     * @param activeBorder: Reference to an St.Bin that will act as border.
+     * @param animate: Flag which tells if the relayout should be animated.
      */
-    ext.injectAfter(
+    ext.addMember(
         Workspace.WindowOverlay, 
-        'relayout', 
-        function(animate) {
-            let [cloneX, 
-                 cloneY, 
-                 cloneWidth, 
-                 cloneHeight] = this._windowClone.slot;
-            // Relayout inner border.
-            let activeBorderInner = this.activeBorderInner;
-            let borderNode = activeBorderInner.get_theme_node();
+        'relayoutSub', 
+        function(referenceWin, activeBorder, animate) {
+            let [cloneX, cloneY, cloneWidth, cloneHeight] = referenceWin;
+            let borderNode = activeBorder.get_theme_node();
             let activeBorderSize = borderNode.get_border_width(St.Side.TOP);
             let borderX = cloneX - activeBorderSize;
             let borderY = cloneY - activeBorderSize;
             let borderWidth = cloneWidth + 2 * activeBorderSize;
             let borderHeight = cloneHeight + 2 * activeBorderSize;
-            Tweener.removeTweens(activeBorderInner);
+            Tweener.removeTweens(activeBorder);
             if (animate) {
                 this._animateOverlayActor(
-                    activeBorderInner, 
+                    activeBorder, 
                     borderX, 
                     borderY,
                     borderWidth, 
                     borderHeight
                 );
             } else {
-                activeBorderInner.set_position(borderX, borderY);
-                activeBorderInner.set_size(borderWidth, borderHeight);
+                activeBorder.set_position(borderX, borderY);
+                activeBorder.set_size(borderWidth, borderHeight);
             }
-            // Relayout outer border.
-            let activeBorderOuter = this.activeBorderOuter;
-            borderNode = activeBorderOuter.get_theme_node();
-            activeBorderSize = borderNode.get_border_width(St.Side.TOP);
-            borderX -= activeBorderSize;
-            borderY -= activeBorderSize;
-            borderWidth += 2 * activeBorderSize;
-            borderHeight += 2 * activeBorderSize;
-            Tweener.removeTweens(activeBorderOuter);
-            if (animate) {
-                this._animateOverlayActor(
-                    activeBorderOuter, 
-                    borderX, 
-                    borderY,
-                    borderWidth, 
-                    borderHeight
-                );
-            } else {
-                activeBorderOuter.set_position(borderX, borderY);
-                activeBorderOuter.set_size(borderWidth, borderHeight);
-            }
+            return [borderX, borderY, borderWidth, borderHeight];
+        }
+     );
+    
+    /*
+     * Applies the border-style dependent on the size and position of the
+     * window-clone it contains.
+     * @param animate: Flag which tells if the relayout should be animated.
+     */
+    ext.injectAfter(
+        Workspace.WindowOverlay, 
+        'relayout', 
+        function(animate) {
+            this.relayoutSub(
+                this.relayoutSub(
+                    this._windowClone.slot, 
+                    this.activeBorderInner,
+                    animate
+                ),
+                this.activeBorderOuter,
+                animate
+            );
         }
     );
     
     /*
      * Selects the associated window. See WindowClone.select.
      * @param lightbox: A reference to the lightbox introduced by 
-     * KeyCtrl's _startSelection.
+     * KeyCtrl's _initSelection.
      */
     ext.addMember(
         Workspace.WindowOverlay,
@@ -1236,8 +1258,6 @@ function enable() {
     /*
      * Unselects the associated window. See WindowClone.unselect.
      * @param resetG: Flag which indicates if the geometry should be reset.
-     * @param hideB: Flag which indicates if the boder of the active window
-     * should be hided. 
      */
     ext.addMember(
         Workspace.WindowOverlay,
@@ -1250,7 +1270,7 @@ function enable() {
     );
     
     /*
-     * Marks the last active window with a border or removes that border again.
+     * Marks the last window with a border or removes that border again.
      * @param set: Flag to indicate whether the window should be marked as 
      * focused/active or not.
      */
@@ -1315,12 +1335,9 @@ function enable() {
             return this._windowClone.metaWindow;
         }
     );
-    
-    log('Arrow Key Window Selector enabled');
 }
     
     
 function disable() {
     ext.cleanUp();
-    log('Arrow Key Window Selector disabled');
 }
