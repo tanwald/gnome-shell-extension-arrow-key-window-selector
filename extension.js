@@ -255,7 +255,6 @@ function KeyCtrl(workspacesDisplay, settings) {
     let _workspacesDisplay = workspacesDisplay;
     let _workspacesViews = workspacesDisplay._workspacesViews;
     let _viewsAgent = _workspacesViews[0];
-    let _extraWorkspaces = _viewsAgent._extraWorkspaces;
     // Window overlays of the overview.
     let _windowOverlays = [];
     // Number of before mentioned windows which have already arrived
@@ -286,22 +285,16 @@ function KeyCtrl(workspacesDisplay, settings) {
      * finished its initial "zooming-in".
      */
     let _registerInitListeners = Lang.bind(this, function() {
-        let _connectWindowReady = Lang.bind(this, function(workspace) {
+        _workspacesViews.forEach(Lang.bind(this, function(view) {
             // Detects when windows arrive at their final position during
             // "zooming-in" of the overview.
             _windowReadyEventIds.push(ext.connect(
-                workspace,
+                view.getActiveWorkspace(),
                 'window-ready',
                 Lang.bind(this, function() {
                     this.onWindowReady();
                 })
             ))
-        })
-        _extraWorkspaces.forEach(Lang.bind(this, function(workspace) {
-            _connectWindowReady(workspace);
-        }))
-        _workspacesViews.forEach(Lang.bind(this, function(view) {
-            _connectWindowReady(view.getActiveWorkspace());
         }))
     });
     _registerInitListeners();
@@ -311,11 +304,11 @@ function KeyCtrl(workspacesDisplay, settings) {
      * workspace changes.
      */
     let _registerTransientListeners = Lang.bind(this, function() {
-        let _connectWindowPositioning = Lang.bind(this, function(workspace) {
+        _workspacesViews.forEach(Lang.bind(this, function(view) {
             // Blocks KeyCtrl while windows are - or are about to - change their
             // positions.
             _transientEventIds.push(ext.connect(
-                workspace,
+                view.getActiveWorkspace(),
                 'window-positioning-init',
                 function() {
                     _blocked = true; 
@@ -324,18 +317,12 @@ function KeyCtrl(workspacesDisplay, settings) {
             // Detects when the window-animation starts, triggers an update 
             // after the animation has ended and removes the block for KeyCtrl.
             _transientEventIds.push(ext.connect(
-                workspace,
+                view.getActiveWorkspace(),
                 'window-positioning-start',
                 Lang.bind(this, function() {
                     this.onWindowPositioningStart(); 
                 })
             ));
-        })
-        _extraWorkspaces.forEach(Lang.bind(this, function(workspace) {
-            _connectWindowPositioning(workspace);
-        }))
-        _workspacesViews.forEach(Lang.bind(this, function(view) {
-            _connectWindowPositioning(view.getActiveWorkspace());
         }))
     });
     _registerTransientListeners();
@@ -891,7 +878,31 @@ function enable() {
 ////////////////////////////////////////////////////////////////////////////////
 // WorkspacesView //////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
-    
+     
+     /*
+      * Getter for the active workspace. Added for "polymorphistic" reasons.
+      * @return: Workspace
+      */
+     ext.addMember(
+         WorkspacesView.ExtraWorkspaceView,
+         'getActiveWorkspace',
+         function() {
+             return this._workspace;
+         }
+     );
+     
+     /*
+      * Getter for window overlays of the workspace.
+      * @return: [ WindowOverlay ]
+      */
+     ext.addMember(
+         WorkspacesView.ExtraWorkspaceView,
+         'getWindowOverlays',
+         function() {
+             return this.getActiveWorkspace().getWindowOverlays();
+         }
+     );
+     
     /*
      * Getter for window overlays of the active workspace and extra workspaces.
      * @return: [ WindowOverlay ]
@@ -900,14 +911,7 @@ function enable() {
         WorkspacesView.WorkspacesView,
         'getWindowOverlays',
         function() {
-            let windowOverlays = this.getActiveWorkspace().getWindowOverlays();
-            this._extraWorkspaces.forEach(function(workspace) {
-                windowOverlays.push.apply(
-                    windowOverlays,
-                    workspace.getWindowOverlays()
-                );
-            })
-            return windowOverlays;
+            return this.getActiveWorkspace().getWindowOverlays();
         }
     );
     

@@ -1,4 +1,4 @@
-{	"shell-version": ["3.10.4"],
+{	"shell-version": ["3.12.2"],
 	"uuid": "arrow-key-window-selector@tanwald.net",
 	"name": "Arrow Key Window Selector",
 	"description": "Select windows in overview mode with arrow keys"
