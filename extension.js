@@ -879,6 +879,14 @@ function enable() {
 // WorkspacesView //////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
      
+     ext.injectAfter(
+        WorkspacesView.WorkspacesViewBase, 
+        '_init', 
+        function() {
+        	global.focus_manager.remove_group(this.actor);
+        }
+    );
+     
      /*
       * Getter for the active workspace. Added for "polymorphistic" reasons.
       * @return: Workspace
@@ -1119,6 +1127,17 @@ function enable() {
                 center_x: actor.x + width / 2,
                 center_y: actor.y + height / 2
             };
+        }
+    );
+    
+    /*
+     * Overwrites the activation of the focused window.
+     */
+    ext.addMember(
+        Workspace.WindowClone,
+        '_onKeyPress',
+        function(actor, event) {
+            return false;
         }
     );
     
