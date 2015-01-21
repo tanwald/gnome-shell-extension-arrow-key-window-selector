@@ -612,7 +612,7 @@ function KeyCtrl(workspacesDisplay, settings) {
         _updateArrowKeyIndex(key);
         // Select and highlight the window if the navigation was valid.
         if (_arrowKeyIndex != currArrowKeyIndex) {
-            _selected.unselect(true);
+            _selected.unselect(true, true);
             _selected = _windowOverlays[_arrowKeyIndex];
             // Highlight.
             _selected.select(_lightbox);
@@ -879,6 +879,9 @@ function enable() {
 // WorkspacesView //////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
      
+     /*
+      * Disables the native window selection.
+      */
      ext.injectAfter(
         WorkspacesView.WorkspacesViewBase, 
         '_init', 
@@ -1094,6 +1097,7 @@ function enable() {
                 actor.y = this.storedGeometry.y;
                 actor.scale_x = this.storedGeometry.scale_x;
                 actor.scale_y = this.storedGeometry.scale_y; 
+                Tweener.removeTweens(actor);
             }
             if (this._origParent) {
                 actor.reparent(this._origParent);
@@ -1102,7 +1106,6 @@ function enable() {
                 } else {
                     actor.lower_bottom();
                 }
-                Tweener.removeTweens(actor);
             }
         }
     );
@@ -1286,7 +1289,9 @@ function enable() {
         Workspace.WindowOverlay,
         'unselect',
         function(resetG) {
-            this.show();
+        	if (resetG) {
+        		this.show();
+        	}
             this.setFocus(false);
             this._windowClone.unselect(resetG);
         }
