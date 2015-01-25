@@ -27,6 +27,7 @@ function KeyCtrlConfig() {
 /*
  * Class for enhanced keyboard navigation in overview mode.
  * @param workspacesDisplay: Reference to the WorkspacesDisplay. 
+ * @param ext: Helper for applying and removing patches.
  * @param cfg: Object containing constants.
  */
 function KeyCtrl(workspacesDisplay, ext, cfg) {
@@ -465,14 +466,31 @@ function KeyCtrl(workspacesDisplay, ext, cfg) {
     };
     
     /*
+     * If the last window of the active workspace was removed there is
+     * no animation and the update of the overview state does'nt get 
+     * triggered at the end of the animation.  
+     */
+    let _manualUpdateCheck = function() {
+        if (_workspacesDisplay.getWindowCount(false) == 0) {
+            _blocked = false;
+            _updateOverviewState();
+        }
+    };
+    
+    /*
      * Moves the selected window to the workspace with the number of the
      * function key i.e. F1 -> workspace 1.
      * @param key: function key identifier.
      */
     let _onFunctionKeyPress = function(key) {
+        _viewsAgent.getActiveWorkspace().keyCtrlActive = true;
+        _blocked = true;
         // F1 means workspace 1 which is at index 0.
         let workspaceIndex = key - Clutter.F1;
-        if (_selected && workspaceIndex < global.screen.get_n_workspaces()) {
+        let activeIndex = global.screen.get_active_workspace_index();
+        if (_selected && 
+            workspaceIndex < global.screen.get_n_workspaces() &&
+            workspaceIndex != activeIndex) {
             let window = _selected.getMetaWindow();
             window.change_workspace_by_index(
                 workspaceIndex, 
@@ -480,6 +498,7 @@ function KeyCtrl(workspacesDisplay, ext, cfg) {
                 global.get_current_time()
             );
             _resetSelection(false, true);
+            _manualUpdateCheck();
         }
     };
     
@@ -487,8 +506,11 @@ function KeyCtrl(workspacesDisplay, ext, cfg) {
      * Closes the currently selected window when the delete key is pressed.
      */
     let _onDeleteKeyPress = function() {
+        _viewsAgent.getActiveWorkspace().keyCtrlActive = true;
+        _blocked = true;
         _windowOverlays[_arrowKeyIndex].closeWindow();
         _resetSelection(false, true);
+        _manualUpdateCheck();
     };
     
     /*
@@ -511,7 +533,7 @@ function KeyCtrl(workspacesDisplay, ext, cfg) {
             _upToDate = false;
             ext.addTimeout(
                 // Overview animation time is defined in seconds... 
-                Overview.ANIMATION_TIME * 1000 * 2,
+                Overview.ANIMATION_TIME * 1000 + 100,
                 Lang.bind(this, function() {
                     _blocked = false;
                     this.updateOverviewState(false);

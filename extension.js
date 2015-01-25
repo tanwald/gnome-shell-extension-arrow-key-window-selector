@@ -1,6 +1,7 @@
 /* -*- mode: js2; js2-basic-offset: 4; indent-tabs-mode: nil -*- */
 
 const Clutter = imports.gi.Clutter;
+const GLib = imports.gi.GLib;
 const Lang = imports.lang;
 const Mainloop = imports.mainloop;
 const St = imports.gi.St;
@@ -18,9 +19,9 @@ const Utils = Extension.imports.utils;
 const KeyCtrl = Extension.imports.keyctrl;
 
 function enable() {
-	
-	let ext = new Utils.ExtHelper();
-	let cfg = new KeyCtrl.KeyCtrlConfig();
+    
+    let ext = new Utils.ExtHelper();
+    let cfg = new KeyCtrl.KeyCtrlConfig();
     
 ////////////////////////////////////////////////////////////////////////////////
 // WorkspacesDisplay ///////////////////////////////////////////////////////////
@@ -100,7 +101,7 @@ function enable() {
         WorkspacesView.WorkspacesViewBase, 
         '_init', 
         function() {
-        	global.focus_manager.remove_group(this.actor);
+            global.focus_manager.remove_group(this.actor);
         }
     );
      
@@ -163,6 +164,17 @@ function enable() {
 ////////////////////////////////////////////////////////////////////////////////
     
     /*
+     * Disables the native window selection.
+     */
+    ext.injectAfter(
+        Workspace.Workspace, 
+        '_init', 
+        function() {
+            this.keyCtrlActive = false;
+        }
+    );
+    
+    /*
      * Getter for window overlays of a workspace. 
      * @return: [ WindowOverlay ]
      */
@@ -188,13 +200,35 @@ function enable() {
     
     /*
      * Emits a signal when the workspace prepares the animation of the window-
-     * repositioning.
+     * repositioning and avoid delayed window positioning.
      */
     ext.injectBefore(
         Workspace.Workspace, 
         '_delayedWindowRepositioning', 
         function() {
             this.emit('window-positioning-init');
+            if (this.keyCtrlActive) {
+                this.keyCtrlActive = false;
+                let flag = Workspace.WindowPositionFlags.ANIMATE;
+                this._recalculateWindowPositions(flag);
+                return true;
+            }
+        }
+    );
+    
+    /*
+     * Avoids delayed window positioning.
+     */
+    ext.injectAfter(
+        Workspace.Workspace, 
+        '_doRemoveWindow', 
+        function() {
+            if (this.keyCtrlActive) {
+                GLib.Source.remove(this._repositionWindowsId);
+                Mainloop.source_remove(this._repositionWindowsId);
+                this._repositionWindowsId = 0;
+                this._delayedWindowRepositioning();
+            }
         }
     );
     
@@ -503,9 +537,9 @@ function enable() {
         Workspace.WindowOverlay,
         'unselect',
         function(resetG) {
-        	if (resetG) {
-        		this.show();
-        	}
+            if (resetG) {
+                this.show();
+            }
             this.setFocus(false);
             this._windowClone.unselect(resetG);
         }
