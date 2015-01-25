@@ -1,5 +1,5 @@
 {	"shell-version": ["3.14.3"],
-	"uuid": "arrow-key-window-selector@tanwald.net",
-	"name": "Arrow Key Window Selector",
-	"description": "Select windows in overview mode with arrow keys"
+	"uuid": "overview-keyboard-control@tanwald.net",
+	"name": "Overview Keyboard Control",
+	"description": "Enhanced keyboard control in overview mode: Select windows with arrow keys, move windows with function keys, close windows with delete key and switch workspace with PgUp, PgDown, Pos1 and End."
 }
