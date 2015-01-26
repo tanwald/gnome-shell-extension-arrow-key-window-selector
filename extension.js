@@ -151,7 +151,7 @@ function enable() {
         function() {
             ext.addTimeout(
                 // Animation time is defined in seconds... 
-                WorkspacesView.WORKSPACE_SWITCH_TIME * 1000 * 2,
+                WorkspacesView.WORKSPACE_SWITCH_TIME * 1000 + 100,
                 Lang.bind(this, function() {
                     this.emit('workspace-switched');
                 })
