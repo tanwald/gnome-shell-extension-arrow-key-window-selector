@@ -138,7 +138,7 @@ function KeyCtrl(workspacesDisplay, ext, cfg) {
             ['window-entered-monitor', 'window-left-monitor'],
             Lang.bind(this,function() {
                 _upToDate = false;
-                this.updateOverviewState(false);
+                this.updateOverviewState();
             })
         );
         // Blocks KeyCtrl while windows are dragged.
@@ -167,7 +167,9 @@ function KeyCtrl(workspacesDisplay, ext, cfg) {
                 ext.disconnect(_transientEventIds);
                 _transientEventIds = [];
                 _registerTransientListeners();
-                this.updateOverviewState(true);
+                this.resetSelection();
+                this.updateOverviewState();
+                _blocked = false;
             })
         );
     });
@@ -335,6 +337,7 @@ function KeyCtrl(workspacesDisplay, ext, cfg) {
             _lightbox.hide();
             ext.disconnect(_selectionEventIds);
             _selectionEventIds = [];
+            _selecting = false;
         }
         if (resetKeyCtrl) {
             _arrowKeyIndex = 0;
@@ -356,7 +359,6 @@ function KeyCtrl(workspacesDisplay, ext, cfg) {
             _active.setFocus(true);
             _arrowKeyIndex = _initialIndex;
         }
-        _selecting = false;
     };
     
     /*
@@ -466,18 +468,6 @@ function KeyCtrl(workspacesDisplay, ext, cfg) {
     };
     
     /*
-     * If the last window of the active workspace was removed there is
-     * no animation and the update of the overview state does'nt get 
-     * triggered at the end of the animation.  
-     */
-    let _manualUpdateCheck = function() {
-        if (_workspacesDisplay.getWindowCount(false) == 0) {
-            _blocked = false;
-            _updateOverviewState();
-        }
-    };
-    
-    /*
      * Moves the selected window to the workspace with the number of the
      * function key i.e. F1 -> workspace 1.
      * @param key: function key identifier.
@@ -498,7 +488,6 @@ function KeyCtrl(workspacesDisplay, ext, cfg) {
                 global.get_current_time()
             );
             _resetSelection(false, true);
-            _manualUpdateCheck();
         }
     };
     
@@ -510,7 +499,6 @@ function KeyCtrl(workspacesDisplay, ext, cfg) {
         _blocked = true;
         _windowOverlays[_arrowKeyIndex].closeWindow();
         _resetSelection(false, true);
-        _manualUpdateCheck();
     };
     
     /*
@@ -535,8 +523,8 @@ function KeyCtrl(workspacesDisplay, ext, cfg) {
                 // Overview animation time is defined in seconds... 
                 Overview.ANIMATION_TIME * 1000 + 100,
                 Lang.bind(this, function() {
+                    this.updateOverviewState();
                     _blocked = false;
-                    this.updateOverviewState(false);
                 })
             ); 
         }
@@ -552,28 +540,22 @@ function KeyCtrl(workspacesDisplay, ext, cfg) {
             // Only applied when the overview is initialized (to be quick).
             ext.disconnect(_windowReadyEventIds);
             _windowReadyEventIds = [];
-            this.updateOverviewState(false);
+            this.updateOverviewState();
         }
         _upToDate = true;
     };
     
     /*
      * Updates the state of the active workspace.
-     * @param resetSelection: Tells if the selection should be reset before.
      */
-    this.updateOverviewState = function(resetSelection) {
-        if (!_blocked && !_selecting) {
-            if(resetSelection) {
-                _resetSelection(false, true); 
-            }
-            _updateOverviewState();
-        }
+    this.updateOverviewState = function() {
+        _updateOverviewState();
     };
     
     /*
-     * Ends the current selection process when the overview starts hiding.
+     * Ends the current selection process.
      */
-    this.onOverviewHiding = function() {
+    this.resetSelection = function() {
         _resetSelection(false, true);
     };
     
@@ -593,10 +575,12 @@ function KeyCtrl(workspacesDisplay, ext, cfg) {
                    key ==Clutter.Home || key ==Clutter.End) {
             _onPageKeyPress(key);
          // Move window when F1-F12 is pressed
-        } else if(key >= Clutter.F1 && key <= Clutter.F12) {
+        } else if(key >= Clutter.F1 && key <= Clutter.F12 &&
+                  _windowOverlays.length > 0) {
             _onFunctionKeyPress(key);
         // Close window when del is pressed.
-        } else if (key == Clutter.Delete) {
+        } else if (key == Clutter.Delete &&
+                   _windowOverlays.length > 0) {
             _onDeleteKeyPress();
         // Activate the selected window when return is pressed.
         } else if (key == Clutter.Return) {

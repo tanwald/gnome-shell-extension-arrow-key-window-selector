@@ -200,7 +200,7 @@ function enable() {
     
     /*
      * Emits a signal when the workspace prepares the animation of the window-
-     * repositioning and avoid delayed window positioning.
+     * repositioning and avoids delayed window positioning.
      */
     ext.injectBefore(
         Workspace.Workspace, 
