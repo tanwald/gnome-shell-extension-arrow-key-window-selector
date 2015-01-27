@@ -18,10 +18,10 @@ const Extension = imports.misc.extensionUtils.getCurrentExtension();
 const Utils = Extension.imports.utils;
 const KeyCtrl = Extension.imports.keyctrl;
 
+let ext = new Utils.ExtHelper();
+let cfg = new KeyCtrl.KeyCtrlConfig();
+
 function enable() {
-    
-    let ext = new Utils.ExtHelper();
-    let cfg = new KeyCtrl.KeyCtrlConfig();
     
 ////////////////////////////////////////////////////////////////////////////////
 // WorkspacesDisplay ///////////////////////////////////////////////////////////

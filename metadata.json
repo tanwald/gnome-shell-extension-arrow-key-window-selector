@@ -1,5 +1,6 @@
 {	"shell-version": ["3.14.3"],
-	"uuid": "overview-keyboard-control@tanwald.net",
+	"uuid": "overview-keyboard-control-dev@tanwald.net",
 	"name": "Overview Keyboard Control",
-	"description": "Enhanced keyboard control in overview mode: Select windows with arrow keys, move windows with function keys, close windows with delete key and switch workspace with PgUp, PgDown, Pos1 and End."
+	"url": "https://github.com/tanwald/gnome-shell-extension-arrow-key-window-selector",
+	"description": "Enhanced keyboard control in overview mode: Select and zoom windows with arrow keys, move windows to workspaces with function keys (Fn > workspace n), close windows with delete key and switch workspace with PgUp, PgDown, Pos1 and End."
 }
