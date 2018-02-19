@@ -1,4 +1,4 @@
-{	"shell-version": ["3.14.3"],
+{	"shell-version": ["3.26.2"],
 	"uuid": "overview-keyboard-control-dev@tanwald.net",
 	"name": "Overview Keyboard Control",
 	"url": "https://github.com/tanwald/gnome-shell-extension-arrow-key-window-selector",
