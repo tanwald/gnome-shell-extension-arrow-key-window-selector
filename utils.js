@@ -106,7 +106,7 @@ function ExtHelper() {
      * resets the id generator.
      */
     this.disconnectAll = function() {
-        this.disconnect(_eventIds.keys());
+        this.disconnect([i for (i in _eventIds)]);
         _idGen = 0;
     };
     
@@ -138,7 +138,7 @@ function ExtHelper() {
      * Removes all timeouts.
      */
     this.removeAll = function() {
-        this.removeTimeouts(_timeoutIds);
+        this.removeTimeouts([_timeoutIds[i] for (i in _timeoutIds)]);
     };
     
     /*
